@@ -1103,6 +1103,136 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Save as Image
+    const saveBtn = document.getElementById('save-button');
+    saveBtn.addEventListener('click', async () => {
+        if (state.nodes.length === 0) {
+            alert("Nothing to save!");
+            return;
+        }
+
+        // Calculate bounding box
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const nodeElements = document.querySelectorAll('.node');
+
+        // Map to store dimensions for line drawing
+        const nodeDims = new Map();
+
+        nodeElements.forEach(el => {
+            const id = el.dataset.id;
+            const x = parseFloat(el.style.left);
+            const y = parseFloat(el.style.top);
+            const w = el.offsetWidth;
+            const h = el.offsetHeight;
+
+            nodeDims.set(id, { w, h });
+
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x + w > maxX) maxX = x + w;
+            if (y + h > maxY) maxY = y + h;
+        });
+
+        const padding = 50;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        // Create container
+        const container = document.createElement('div');
+        container.style.position = 'fixed';
+        container.style.left = '-9999px';
+        container.style.top = '0';
+        container.style.width = `${width}px`;
+        container.style.height = `${height}px`;
+        container.style.backgroundColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
+
+        // Clone world
+        const worldClone = world.cloneNode(true);
+        worldClone.style.transform = `translate(${-minX}px, ${-minY}px) scale(1)`;
+        worldClone.style.transformOrigin = '0 0';
+
+        // Remove existing SVGs from clone (we will redraw them)
+        const oldConnections = worldClone.querySelector('#connections');
+        if (oldConnections) oldConnections.remove();
+        const oldGroups = worldClone.querySelector('#groups');
+        if (oldGroups) oldGroups.remove();
+
+        // Create a canvas for connections
+        const canvasLayer = document.createElement('canvas');
+        canvasLayer.width = width;
+        canvasLayer.height = height;
+        canvasLayer.style.position = 'absolute';
+        canvasLayer.style.left = `${minX}px`;
+        canvasLayer.style.top = `${minY}px`;
+        canvasLayer.style.zIndex = '0'; // Behind nodes
+
+        const ctx = canvasLayer.getContext('2d');
+
+        // Translate context so we can draw in world coordinates
+        ctx.translate(-minX, -minY);
+
+        // Draw Connections
+        state.nodes.forEach(node => {
+            if (node.parentIds && node.parentIds.length > 0) {
+                node.parentIds.forEach(parentId => {
+                    const parent = state.nodes.find(n => n.id === parentId);
+                    if (parent) {
+                        const pDim = nodeDims.get(parent.id) || { w: 100, h: 50 };
+                        const cDim = nodeDims.get(node.id) || { w: 100, h: 50 };
+
+                        const startX = parent.x + pDim.w / 2;
+                        const startY = parent.y + pDim.h / 2;
+                        const endX = node.x + cDim.w / 2;
+                        const endY = node.y + cDim.h / 2;
+
+                        const deltaX = endX - startX;
+                        const c1x = startX + deltaX * 0.4;
+                        const c1y = startY;
+                        const c2x = endX - deltaX * 0.4;
+                        const c2y = endY;
+
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, endX, endY);
+                        ctx.strokeStyle = parent.color || '#555';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    }
+                });
+            }
+        });
+
+        // Insert canvas into worldClone before nodes
+        const nodesContainerClone = worldClone.querySelector('#nodes-container');
+        worldClone.insertBefore(canvasLayer, nodesContainerClone);
+
+        container.appendChild(worldClone);
+        document.body.appendChild(container);
+
+        try {
+            const canvas = await html2canvas(container, {
+                backgroundColor: container.style.backgroundColor,
+                scale: 2,
+                logging: false
+            });
+
+            const link = document.createElement('a');
+            link.download = `orbit-mindmap-${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        } catch (err) {
+            console.error("Export failed:", err);
+            alert("Failed to export image.");
+        } finally {
+            document.body.removeChild(container);
+        }
+    });
+
     // Initial Load
     loadState();
     render();
