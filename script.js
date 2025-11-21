@@ -351,6 +351,17 @@ document.addEventListener('DOMContentLoaded', () => {
             deleteNode(nodeData.id);
         });
 
+        // Prevent touch events on controls from triggering drag/pan
+        const stopTouchPropagation = (e) => {
+            e.stopPropagation();
+        };
+
+        controls.querySelectorAll('button, input').forEach(el => {
+            el.addEventListener('touchstart', stopTouchPropagation, { passive: false });
+        });
+
+        content.addEventListener('touchstart', stopTouchPropagation, { passive: false });
+
         controls.appendChild(colorWrapper);
         controls.appendChild(linkBtn);
         controls.appendChild(addChildBtn);
@@ -680,7 +691,64 @@ document.addEventListener('DOMContentLoaded', () => {
             // Node position in state was already updated in onMouseMove, just save it.
             const nodeId = element.dataset.id;
             const nodeToUpdate = state.nodes.find(n => n.id === nodeId);
-            if (nodeToUpdate) { // Ensure node exists before saving
+            if (nodeToUpdate) {
+                saveState();
+            }
+        };
+
+        // Touch Events for Node Dragging
+        const onTouchStart = (e) => {
+            if (e.touches.length !== 1 ||
+                e.target.getAttribute('contenteditable') === 'true' ||
+                e.target.closest('button') ||
+                e.target.closest('.color-picker-wrapper')) return;
+
+            isDragging = true;
+            dragStartX = e.touches[0].clientX;
+            dragStartY = e.touches[0].clientY;
+
+            const nodeId = element.dataset.id;
+            const nodeData = state.nodes.find(n => n.id === nodeId);
+            if (nodeData) {
+                initialNodeX = nodeData.x;
+                initialNodeY = nodeData.y;
+            }
+
+            element.style.cursor = 'grabbing';
+            e.stopPropagation();
+        };
+
+        const onTouchMove = (e) => {
+            if (!isDragging) return;
+            e.preventDefault(); // Prevent scrolling
+
+            const deltaX = (e.touches[0].clientX - dragStartX) / scale;
+            const deltaY = (e.touches[0].clientY - dragStartY) / scale;
+
+            const newX = initialNodeX + deltaX;
+            const newY = initialNodeY + deltaY;
+
+            element.style.left = `${newX}px`;
+            element.style.top = `${newY}px`;
+
+            const nodeId = element.dataset.id;
+            const nodeData = state.nodes.find(n => n.id === nodeId);
+            if (nodeData) {
+                nodeData.x = newX;
+                nodeData.y = newY;
+            }
+
+            renderConnections();
+        };
+
+        const onTouchEnd = (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            element.style.cursor = 'move';
+
+            const nodeId = element.dataset.id;
+            const nodeToUpdate = state.nodes.find(n => n.id === nodeId);
+            if (nodeToUpdate) {
                 saveState();
             }
         };
@@ -688,12 +756,34 @@ document.addEventListener('DOMContentLoaded', () => {
         element.addEventListener('mousedown', onMouseDown);
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
+
+        element.addEventListener('touchstart', onTouchStart, { passive: false });
+        document.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.addEventListener('touchend', onTouchEnd);
     };
 
     // Canvas Panning Logic
     let isPanning = false;
-    let panStartX, panStartY; // Mouse position when pan started (screen coordinates)
-    let initialPanX, initialPanY; // Pan offset when pan started
+    let panStartX, panStartY;
+    let initialPanX, initialPanY;
+
+    // Touch Panning & Zooming State
+    let initialPinchDistance = null;
+    let initialScale = null;
+
+    const getDistance = (touch1, touch2) => {
+        return Math.sqrt(
+            Math.pow(touch2.clientX - touch1.clientX, 2) +
+            Math.pow(touch2.clientY - touch1.clientY, 2)
+        );
+    };
+
+    const getCenter = (touch1, touch2) => {
+        return {
+            x: (touch1.clientX + touch2.clientX) / 2,
+            y: (touch1.clientY + touch2.clientY) / 2
+        };
+    };
 
     canvas.addEventListener('mousedown', (e) => {
         // Only pan if clicking directly on canvas or world (not nodes or their children)
@@ -726,6 +816,68 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Touch Panning & Zooming
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.target === canvas || e.target === world || e.target === connectionsSvg || e.target.id === 'groups') {
+            if (e.touches.length === 1) {
+                // Pan
+                isPanning = true;
+                panStartX = e.touches[0].clientX;
+                panStartY = e.touches[0].clientY;
+                initialPanX = pan.x;
+                initialPanY = pan.y;
+            } else if (e.touches.length === 2) {
+                // Pinch Zoom
+                isPanning = false; // Stop panning if pinching
+                initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
+                initialScale = scale;
+            }
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1 && isPanning) {
+            const deltaX = e.touches[0].clientX - panStartX;
+            const deltaY = e.touches[0].clientY - panStartY;
+
+            pan.x = initialPanX + deltaX;
+            pan.y = initialPanY + deltaY;
+
+            updateTransform();
+        } else if (e.touches.length === 2 && initialPinchDistance) {
+            e.preventDefault();
+            const currentDistance = getDistance(e.touches[0], e.touches[1]);
+            const zoomFactor = currentDistance / initialPinchDistance;
+
+            const newScale = initialScale * zoomFactor;
+
+            // Zoom centered on pinch center
+            const center = getCenter(e.touches[0], e.touches[1]);
+
+            // Calculate world pos of center before zoom
+            const worldX = (center.x - pan.x) / scale;
+            const worldY = (center.y - pan.y) / scale;
+
+            scale = Math.min(Math.max(0.1, newScale), 5);
+
+            // Adjust pan to keep center fixed
+            pan.x = center.x - worldX * scale;
+            pan.y = center.y - worldY * scale;
+
+            updateTransform();
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) {
+            initialPinchDistance = null;
+        }
+        if (e.touches.length === 0) {
+            isPanning = false;
+        }
+    });
+
+    // Zoom Logic
     // Zoom Logic
     const zoom = (delta, center) => {
         const oldScale = scale;
