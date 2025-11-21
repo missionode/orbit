@@ -199,19 +199,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const drawConnection = (parent, child) => {
-        // Calculate centers
-        // Note: We need to get the actual DOM elements to know width/height if dynamic, 
-        // but for simplicity/performance we can assume standard sizes or read from data if we stored it.
-        // Better: Read from DOM if available, else estimate.
+    const detachNode = (parentId, childId) => {
+        const child = state.nodes.find(n => n.id === childId);
+        if (child && child.parentIds) {
+            child.parentIds = child.parentIds.filter(id => id !== parentId);
+            saveState();
+            render();
+        }
+    };
 
+    const drawConnection = (parent, child) => {
         const parentEl = document.querySelector(`.node[data-id="${parent.id}"]`);
         const childEl = document.querySelector(`.node[data-id="${child.id}"]`);
 
         if (!parentEl || !childEl) return;
 
-        // Positions are in state (world coordinates)
-        // Dimensions are static/CSS based, so we can just use offsetWidth/Height
         const pRect = {
             x: parent.x,
             y: parent.y,
@@ -231,25 +233,87 @@ document.addEventListener('DOMContentLoaded', () => {
         const endX = cRect.x + cRect.w / 2;
         const endY = cRect.y + cRect.h / 2;
 
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-
-        // Bezier curve for "Orbit" look
+        // Bezier curve
         const deltaX = endX - startX;
-        // Control points to make it curve nicely
         const c1x = startX + deltaX * 0.4;
         const c1y = startY;
         const c2x = endX - deltaX * 0.4;
         const c2y = endY;
-
         const d = `M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
 
+        // Create group
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.classList.add('connection-group');
+        group.style.pointerEvents = 'all'; // Ensure events are captured
+
+        // 1. Visible Line
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         line.setAttribute('d', d);
-        // Use parent's color for the connection, or default gray
         line.setAttribute('stroke', parent.color || '#555');
         line.setAttribute('stroke-width', '2');
         line.setAttribute('fill', 'none');
 
-        connectionsSvg.appendChild(line);
+        // 2. Hit Area (Invisible, thicker)
+        const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hitArea.setAttribute('d', d);
+        hitArea.setAttribute('stroke', 'transparent');
+        hitArea.setAttribute('stroke-width', '20');
+        hitArea.setAttribute('fill', 'none');
+        hitArea.style.cursor = 'pointer';
+
+        // 3. Detach Button
+        // Calculate midpoint of Bezier curve (t=0.5)
+        // B(t) = (1-t)^3 P0 + 3(1-t)^2 t P1 + 3(1-t) t^2 P2 + t^3 P3
+        const t = 0.5;
+        const midX = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * c1x + 3 * (1 - t) * Math.pow(t, 2) * c2x + Math.pow(t, 3) * endX;
+        const midY = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * c1y + 3 * (1 - t) * Math.pow(t, 2) * c2y + Math.pow(t, 3) * endY;
+
+        const detachBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        detachBtn.setAttribute('transform', `translate(${midX - 10}, ${midY - 10})`);
+        detachBtn.style.display = 'none';
+        detachBtn.style.cursor = 'pointer';
+
+        const btnCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        btnCircle.setAttribute('cx', '10');
+        btnCircle.setAttribute('cy', '10');
+        btnCircle.setAttribute('r', '10');
+        btnCircle.setAttribute('fill', '#ff4444');
+
+        const btnMinus = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        btnMinus.setAttribute('x1', '5');
+        btnMinus.setAttribute('y1', '10');
+        btnMinus.setAttribute('x2', '15');
+        btnMinus.setAttribute('y2', '10');
+        btnMinus.setAttribute('stroke', 'white');
+        btnMinus.setAttribute('stroke-width', '2');
+
+        detachBtn.appendChild(btnCircle);
+        detachBtn.appendChild(btnMinus);
+
+        // Event Listeners
+        const showBtn = () => detachBtn.style.display = 'block';
+        const hideBtn = () => detachBtn.style.display = 'none';
+
+        group.addEventListener('mouseenter', showBtn);
+        group.addEventListener('mouseleave', hideBtn);
+
+        // For touch devices, tapping the line toggles the button
+        hitArea.addEventListener('click', (e) => {
+            e.stopPropagation();
+            detachBtn.style.display = detachBtn.style.display === 'none' ? 'block' : 'none';
+        });
+
+        detachBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (confirm('Detach this node?')) {
+                detachNode(parent.id, child.id);
+            }
+        });
+
+        group.appendChild(line);
+        group.appendChild(hitArea);
+        group.appendChild(detachBtn);
+        connectionsSvg.appendChild(group);
     };
 
     const createNodeElement = (nodeData) => {
