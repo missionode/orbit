@@ -118,6 +118,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderNodes = () => {
         const existingNodeIds = new Set();
 
+        // Calculate parent counts to identify leaf nodes
+        const parentCounts = {};
+        state.nodes.forEach(n => {
+            if (n.parentIds) {
+                n.parentIds.forEach(pId => {
+                    parentCounts[pId] = (parentCounts[pId] || 0) + 1;
+                });
+            }
+        });
+
         state.nodes.forEach(nodeData => {
             existingNodeIds.add(nodeData.id);
             let nodeEl = document.querySelector(`.node[data-id="${nodeData.id}"]`);
@@ -141,10 +151,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Update color visual cues
                 if (nodeData.color) {
-                    nodeEl.style.borderColor = nodeData.color;
-                    nodeEl.style.boxShadow = `0 4px 12px ${nodeData.color}40`;
+                    nodeEl.style.borderColor = nodeData.marked ? '#00ff88' : nodeData.color;
+                    nodeEl.style.boxShadow = nodeData.marked ? '0 4px 12px rgba(0, 255, 136, 0.4)' : `0 4px 12px ${nodeData.color}40`;
                     const colorIcon = nodeEl.querySelector('.color-icon');
                     if (colorIcon) colorIcon.style.backgroundColor = nodeData.color;
+                } else if (nodeData.marked) {
+                    nodeEl.style.borderColor = '#00ff88';
+                    nodeEl.style.boxShadow = '0 4px 12px rgba(0, 255, 136, 0.4)';
                 }
 
                 // Update link handle visibility
@@ -153,8 +166,46 @@ document.addEventListener('DOMContentLoaded', () => {
                     linkHandle.style.display = linkingFromId === nodeData.id ? 'flex' : 'none';
                 }
 
+                // Leaf Node Logic
+                const isLeaf = !parentCounts[nodeData.id];
+                const markBtn = nodeEl.querySelector('.mark-complete');
+                const addChildBtn = nodeEl.querySelector('.add-child');
+                const linkBtn = nodeEl.querySelector('.link-node');
+
+                if (markBtn) {
+                    markBtn.style.display = isLeaf ? 'block' : 'none';
+                    markBtn.style.color = nodeData.marked ? '#00ff88' : '#aaa';
+                }
+
+                if (addChildBtn) {
+                    if (nodeData.marked) {
+                        addChildBtn.style.opacity = '0.3';
+                        addChildBtn.style.pointerEvents = 'none';
+                    } else {
+                        addChildBtn.style.opacity = '1';
+                        addChildBtn.style.pointerEvents = 'auto';
+                    }
+                }
+
+                // Also disable linking FROM a marked node? Maybe.
+                if (linkBtn) {
+                    if (nodeData.marked) {
+                        linkBtn.style.opacity = '0.3';
+                        linkBtn.style.pointerEvents = 'none';
+                    } else {
+                        linkBtn.style.opacity = '1';
+                        linkBtn.style.pointerEvents = 'auto';
+                    }
+                }
+
             } else {
-                createNodeElement(nodeData);
+                const newNode = createNodeElement(nodeData);
+                // Apply leaf logic immediately to new node
+                const isLeaf = !parentCounts[nodeData.id];
+                const markBtn = newNode.querySelector('.mark-complete');
+                if (markBtn) {
+                    markBtn.style.display = isLeaf ? 'block' : 'none';
+                }
             }
         });
 
@@ -620,10 +671,32 @@ document.addEventListener('DOMContentLoaded', () => {
         heading.addEventListener('touchstart', stopTouchPropagation, { passive: false });
         description.addEventListener('touchstart', stopTouchPropagation, { passive: false });
 
+        // Mark Complete Button (Only for leaf nodes)
+        const markBtn = document.createElement('button');
+        markBtn.classList.add('control-btn', 'mark-complete');
+        markBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+        markBtn.title = 'Mark as Solved/Complete';
+        markBtn.style.color = nodeData.marked ? '#00ff88' : '#aaa';
+        markBtn.style.display = 'none'; // Hidden by default, shown by renderNodes if leaf
+
+        markBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            if (nodeToUpdate) {
+                nodeToUpdate.marked = !nodeToUpdate.marked;
+                saveState();
+                render(); // Re-render to update UI state
+            }
+        });
+
+        markBtn.addEventListener('touchstart', stopTouchPropagation, { passive: false });
+
         controls.appendChild(colorWrapper);
         controls.appendChild(linkBtn);
         controls.appendChild(addChildBtn);
+        controls.appendChild(markBtn); // Add mark button
         controls.appendChild(deleteButton);
+
         // Link Handle (The "Plus" button that appears)
         const linkHandle = document.createElement('div');
         linkHandle.classList.add('link-handle');
@@ -714,6 +787,8 @@ document.addEventListener('DOMContentLoaded', () => {
         nodesContainer.appendChild(node);
 
         makeDraggable(node);
+
+        return node;
     };
 
     let isLinking = false;

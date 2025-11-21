@@ -202,6 +202,11 @@ html {
     background-color: rgba(0, 255, 136, 0.2);
 }
 
+.mark-complete:hover {
+    background-color: rgba(0, 255, 136, 0.2);
+    color: #00ff88 !important;
+}
+
 
 #controls-ui {
     position: fixed;
