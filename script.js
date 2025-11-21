@@ -1297,6 +1297,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Clear Canvas
+    const clearBtn = document.getElementById('clear-button');
+    clearBtn.addEventListener('click', () => {
+        if (state.nodes.length === 0) return;
+
+        if (confirm("Are you sure you want to clear the entire canvas? This action cannot be undone.")) {
+            state.nodes = [];
+            saveState();
+            render();
+            // Reset pan and zoom? Optional, but maybe nice.
+            pan = { x: 0, y: 0 };
+            scale = 1;
+            updateTransform();
+        }
+    });
+
     // Initial Load
     loadState();
     render();
