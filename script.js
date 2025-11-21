@@ -77,10 +77,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 nodeEl.style.left = `${nodeData.x}px`;
                 nodeEl.style.top = `${nodeData.y}px`;
 
-                // Update content if it changed externally
-                const contentEl = nodeEl.querySelector('.node-content');
-                if (contentEl && contentEl.innerText !== nodeData.content && document.activeElement !== contentEl) {
-                    contentEl.innerText = nodeData.content;
+                // Update heading if it changed externally
+                const headingEl = nodeEl.querySelector('.node-heading');
+                if (headingEl && headingEl.innerText !== (nodeData.heading || nodeData.content || '') && document.activeElement !== headingEl) {
+                    headingEl.innerText = nodeData.heading || nodeData.content || '';
+                }
+
+                // Update description if it changed externally
+                const descEl = nodeEl.querySelector('.node-description');
+                if (descEl && descEl.innerText !== (nodeData.description || '') && document.activeElement !== descEl) {
+                    descEl.innerText = nodeData.description || '';
                 }
 
                 // Update color visual cues
@@ -500,7 +506,41 @@ document.addEventListener('DOMContentLoaded', () => {
             el.addEventListener('touchstart', stopTouchPropagation, { passive: false });
         });
 
-        content.addEventListener('touchstart', stopTouchPropagation, { passive: false });
+        // Heading Input
+        const heading = document.createElement('div');
+        heading.classList.add('node-heading');
+        heading.setAttribute('contenteditable', 'true');
+        heading.setAttribute('placeholder', 'Heading');
+        heading.innerText = nodeData.heading || nodeData.content || ''; // Fallback to content for old nodes
+
+        heading.addEventListener('input', () => {
+            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            if (nodeToUpdate) {
+                nodeToUpdate.heading = heading.innerText;
+                // If migrating, clear old content
+                if (nodeToUpdate.content) delete nodeToUpdate.content;
+                saveState();
+            }
+        });
+
+        // Description Input
+        const description = document.createElement('div');
+        description.classList.add('node-description');
+        description.setAttribute('contenteditable', 'true');
+        description.setAttribute('placeholder', 'Description (optional)');
+        description.innerText = nodeData.description || '';
+
+        description.addEventListener('input', () => {
+            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            if (nodeToUpdate) {
+                nodeToUpdate.description = description.innerText;
+                saveState();
+            }
+        });
+
+        // Prevent touch propagation
+        heading.addEventListener('touchstart', stopTouchPropagation, { passive: false });
+        description.addEventListener('touchstart', stopTouchPropagation, { passive: false });
 
         controls.appendChild(colorWrapper);
         controls.appendChild(linkBtn);
@@ -588,8 +628,10 @@ document.addEventListener('DOMContentLoaded', () => {
         linkHandle.addEventListener('mousedown', handleDragStart);
         linkHandle.addEventListener('touchstart', handleDragStart, { passive: false });
 
+        // Append elements
         node.appendChild(linkHandle);
-        node.appendChild(content);
+        node.appendChild(heading);
+        node.appendChild(description);
         node.appendChild(controls);
         nodesContainer.appendChild(node);
 

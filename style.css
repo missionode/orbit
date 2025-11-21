@@ -103,13 +103,31 @@ html {
     border-color: var(--accent-color);
 }
 
-.node-content {
-    flex-grow: 1;
+.node-heading {
     outline: none;
     color: var(--text-color);
-    font-size: 16px;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 8px;
+    min-height: 24px;
+}
+
+.node-description {
+    outline: none;
+    color: #aaa;
+    font-size: 14px;
     line-height: 1.4;
-    min-height: 50px;
+    min-height: 20px;
+}
+
+.node-heading:empty:before,
+.node-description:empty:before {
+    content: attr(placeholder);
+    color: #555;
+    pointer-events: none;
+    display: block;
+    /* For Firefox */
 }
 
 .node-controls {
