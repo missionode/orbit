@@ -241,3 +241,29 @@ html {
         height: 50px;
     }
 }
+
+.link-handle {
+    position: absolute;
+    right: -15px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    background-color: var(--accent-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    font-size: 18px;
+    cursor: crosshair;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    user-select: none;
+}
+
+.link-handle:hover {
+    transform: translateY(-50%) scale(1.1);
+    background-color: var(--accent-color-hover);
+}

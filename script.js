@@ -430,6 +430,89 @@ document.addEventListener('DOMContentLoaded', () => {
         controls.appendChild(linkBtn);
         controls.appendChild(addChildBtn);
         controls.appendChild(deleteButton);
+        // Link Handle (The "Plus" button that appears)
+        const linkHandle = document.createElement('div');
+        linkHandle.classList.add('link-handle');
+        linkHandle.innerHTML = '+';
+        linkHandle.title = 'Drag to connect';
+        linkHandle.style.display = linkingFromId === nodeData.id ? 'flex' : 'none';
+
+        // Drag logic for the handle
+        const handleDragStart = (e) => {
+            e.stopPropagation();
+            e.preventDefault(); // Prevent text selection
+
+            const startX = (e.clientX || e.touches[0].clientX) - pan.x; // Adjust for pan? No, get client coords first
+            const startY = (e.clientY || e.touches[0].clientY) - pan.y;
+
+            // Actually we need world coordinates for the line start
+            const worldStartX = nodeData.x + node.offsetWidth; // Start from right side
+            const worldStartY = nodeData.y + node.offsetHeight / 2;
+
+            isLinking = true;
+            tempLinkStart = { x: worldStartX, y: worldStartY };
+
+            // Create temp line
+            const tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            tempLine.setAttribute('id', 'temp-link-line');
+            tempLine.setAttribute('stroke', '#fff');
+            tempLine.setAttribute('stroke-width', '2');
+            tempLine.setAttribute('stroke-dasharray', '5,5');
+            tempLine.setAttribute('fill', 'none');
+            connectionsSvg.appendChild(tempLine);
+
+            const moveHandler = (moveEvent) => {
+                const clientX = moveEvent.clientX || moveEvent.touches[0].clientX;
+                const clientY = moveEvent.clientY || moveEvent.touches[0].clientY;
+
+                // Convert to world coords
+                const worldX = (clientX - pan.x) / scale;
+                const worldY = (clientY - pan.y) / scale;
+
+                const d = `M ${tempLinkStart.x} ${tempLinkStart.y} L ${worldX} ${worldY}`;
+                tempLine.setAttribute('d', d);
+            };
+
+            const upHandler = (upEvent) => {
+                isLinking = false;
+                document.removeEventListener('mousemove', moveHandler);
+                document.removeEventListener('mouseup', upHandler);
+                document.removeEventListener('touchmove', moveHandler);
+                document.removeEventListener('touchend', upHandler);
+
+                if (tempLine) tempLine.remove();
+
+                // Check if dropped on a node
+                const clientX = upEvent.clientX || (upEvent.changedTouches ? upEvent.changedTouches[0].clientX : 0);
+                const clientY = upEvent.clientY || (upEvent.changedTouches ? upEvent.changedTouches[0].clientY : 0);
+
+                // Hide the handle after drag
+                linkingFromId = null;
+                renderNodes();
+
+                // Find element under cursor
+                // We need to temporarily hide the handle/line to see what's under
+                const targetEl = document.elementFromPoint(clientX, clientY);
+                const targetNodeEl = targetEl ? targetEl.closest('.node') : null;
+
+                if (targetNodeEl) {
+                    const targetId = targetNodeEl.dataset.id;
+                    if (targetId && targetId !== nodeData.id) {
+                        completeLink(nodeData.id, targetId);
+                    }
+                }
+            };
+
+            document.addEventListener('mousemove', moveHandler);
+            document.addEventListener('mouseup', upHandler);
+            document.addEventListener('touchmove', moveHandler, { passive: false });
+            document.addEventListener('touchend', upHandler);
+        };
+
+        linkHandle.addEventListener('mousedown', handleDragStart);
+        linkHandle.addEventListener('touchstart', handleDragStart, { passive: false });
+
+        node.appendChild(linkHandle);
         node.appendChild(content);
         node.appendChild(controls);
         nodesContainer.appendChild(node);
@@ -437,14 +520,17 @@ document.addEventListener('DOMContentLoaded', () => {
         makeDraggable(node);
     };
 
+    let isLinking = false;
+    let tempLinkStart = null;
+
     const startLinkMode = (id) => {
         if (linkingFromId === id) {
             linkingFromId = null; // Toggle off
         } else {
             linkingFromId = id;
-            alert("Select another node to connect to.");
+            // Alert removed, visual cue is the handle
         }
-        renderNodes(); // Re-render to show visual cue
+        renderNodes();
     };
 
     const completeLink = (parentId, childId) => {
