@@ -24,9 +24,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let fileHandle = null;
 
-    const saveState = () => {
+    // History State
+    let history = [];
+    let historyIndex = -1;
+    let isUndoing = false;
+
+    const pushHistory = () => {
+        if (isUndoing) return;
+
+        const currentState = JSON.parse(JSON.stringify(state));
+
+        // If we are not at the end of history, discard future
+        if (historyIndex < history.length - 1) {
+            history = history.slice(0, historyIndex + 1);
+        }
+
+        history.push(currentState);
+        historyIndex++;
+
+        // Limit history size
+        if (history.length > 50) {
+            history.shift();
+            historyIndex--;
+        }
+    };
+
+    const undo = () => {
+        if (historyIndex > 0) {
+            isUndoing = true;
+            historyIndex--;
+            state = JSON.parse(JSON.stringify(history[historyIndex]));
+            saveState(true); // Save to local storage but don't push to history
+            render();
+            isUndoing = false;
+        }
+    };
+
+    const redo = () => {
+        if (historyIndex < history.length - 1) {
+            isUndoing = true;
+            historyIndex++;
+            state = JSON.parse(JSON.stringify(history[historyIndex]));
+            saveState(true);
+            render();
+            isUndoing = false;
+        }
+    };
+
+    const saveState = (skipHistory = false) => {
         state.lastModified = new Date().toISOString();
         localStorage.setItem('orbitMindData', JSON.stringify(state));
+        if (!skipHistory) {
+            pushHistory();
+        }
     };
 
     const loadState = () => {
@@ -460,7 +510,12 @@ document.addEventListener('DOMContentLoaded', () => {
         colorInput.addEventListener('input', (e) => {
             const newColor = e.target.value;
             colorIcon.style.backgroundColor = newColor;
-            updateBranchColor(nodeData.id, newColor);
+            // Just update visual, don't save yet
+        });
+
+        colorInput.addEventListener('change', (e) => {
+            const newColor = e.target.value;
+            updateBranchColor(nodeData.id, newColor); // This calls saveState() which pushes history
         });
 
         colorWrapper.appendChild(colorInput);
@@ -511,15 +566,26 @@ document.addEventListener('DOMContentLoaded', () => {
         heading.classList.add('node-heading');
         heading.setAttribute('contenteditable', 'true');
         heading.setAttribute('placeholder', 'Heading');
-        heading.innerText = nodeData.heading || nodeData.content || ''; // Fallback to content for old nodes
+        heading.innerText = nodeData.heading || nodeData.content || '';
+
+        let initialHeading = heading.innerText;
+
+        heading.addEventListener('focus', () => {
+            initialHeading = heading.innerText;
+        });
 
         heading.addEventListener('input', () => {
             const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
                 nodeToUpdate.heading = heading.innerText;
-                // If migrating, clear old content
                 if (nodeToUpdate.content) delete nodeToUpdate.content;
-                saveState();
+                saveState(true); // Skip history on continuous input
+            }
+        });
+
+        heading.addEventListener('blur', () => {
+            if (heading.innerText !== initialHeading) {
+                pushHistory(); // Save history snapshot on blur
             }
         });
 
@@ -530,11 +596,23 @@ document.addEventListener('DOMContentLoaded', () => {
         description.setAttribute('placeholder', 'Description (optional)');
         description.innerText = nodeData.description || '';
 
+        let initialDescription = description.innerText;
+
+        description.addEventListener('focus', () => {
+            initialDescription = description.innerText;
+        });
+
         description.addEventListener('input', () => {
             const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
                 nodeToUpdate.description = description.innerText;
-                saveState();
+                saveState(true); // Skip history on continuous input
+            }
+        });
+
+        description.addEventListener('blur', () => {
+            if (description.innerText !== initialDescription) {
+                pushHistory(); // Save history snapshot on blur
             }
         });
 
@@ -1612,8 +1690,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial Load
     loadState();
+    pushHistory(); // Initialize history with the loaded state
     render();
-    updateTransform(); // Apply initial pan/scale
+    updateTransform();
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+            e.preventDefault();
+            if (e.shiftKey) {
+                redo();
+            } else {
+                undo();
+            }
+        } else if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+            e.preventDefault();
+            redo();
+        }
+    }); // Apply initial pan/scale
 
     // Handle window resize to update connections if needed
     window.addEventListener('resize', renderConnections);
