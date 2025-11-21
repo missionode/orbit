@@ -215,7 +215,8 @@ html {
 
 #sync-button,
 #save-button,
-#clear-button {
+#clear-button,
+#reposition-button {
     background-color: var(--accent-color);
     color: white;
     border: none;
@@ -232,7 +233,8 @@ html {
 
 #sync-button:hover,
 #save-button:hover,
-#clear-button:hover {
+#clear-button:hover,
+#reposition-button:hover {
     background-color: var(--accent-color-hover);
     transform: scale(1.05);
 }

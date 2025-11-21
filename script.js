@@ -1517,6 +1517,99 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Auto Reposition Logic
+    const autoLayout = () => {
+        if (state.nodes.length === 0) return;
+
+        const roots = state.nodes.filter(n => !n.parentIds || n.parentIds.length === 0);
+        // If no clear roots (cycles), pick the first node
+        if (roots.length === 0) {
+            roots.push(state.nodes[0]);
+        }
+
+        const GAP_X = 50;
+        const GAP_Y = 150;
+        const NODE_WIDTH = 150;
+
+        // Helper to get children
+        const getChildren = (parentId) => state.nodes.filter(n => n.parentIds && n.parentIds.includes(parentId));
+
+        // Recursive layout function
+        // Returns the bounding box {minX, maxX} of the subtree
+        const layoutTree = (nodeId, x, y, visited = new Set()) => {
+            if (visited.has(nodeId)) {
+                return { minX: x, maxX: x + NODE_WIDTH };
+            }
+            visited.add(nodeId);
+
+            const children = getChildren(nodeId);
+            const node = state.nodes.find(n => n.id === nodeId);
+
+            if (children.length === 0) {
+                if (node) {
+                    node.x = x;
+                    node.y = y;
+                }
+                return { minX: x, maxX: x + NODE_WIDTH };
+            }
+
+            let currentChildX = x;
+            let minChildX = Infinity;
+            let maxChildX = -Infinity;
+
+            children.forEach(child => {
+                // We place children recursively
+                // Note: We pass currentChildX as the start X for the child's subtree
+                const bounds = layoutTree(child.id, currentChildX, y + GAP_Y, visited);
+
+                minChildX = Math.min(minChildX, bounds.minX);
+                maxChildX = Math.max(maxChildX, bounds.maxX);
+
+                // The next child starts after this child's subtree + gap
+                currentChildX = bounds.maxX + GAP_X;
+            });
+
+            // Center parent over children
+            if (node) {
+                const childrenCenter = (minChildX + maxChildX) / 2;
+                node.x = childrenCenter - NODE_WIDTH / 2;
+                node.y = y;
+            }
+
+            // The bounding box of THIS tree includes the parent and the children
+            // Parent is at node.x to node.x + NODE_WIDTH
+            // Children are from minChildX to maxChildX
+            const parentLeft = node ? node.x : x;
+            const parentRight = node ? node.x + NODE_WIDTH : x + NODE_WIDTH;
+
+            return {
+                minX: Math.min(parentLeft, minChildX),
+                maxX: Math.max(parentRight, maxChildX)
+            };
+        };
+
+        let startX = 0;
+        const globalVisited = new Set();
+
+        roots.forEach(root => {
+            const bounds = layoutTree(root.id, startX, 100, globalVisited);
+            startX = bounds.maxX + GAP_X + 100; // Gap between separate trees
+        });
+
+        saveState();
+        render();
+
+        // Reset view to center
+        pan = { x: window.innerWidth / 2 - startX / 2, y: 100 };
+        updateTransform();
+    };
+
+    document.getElementById('reposition-button').addEventListener('click', () => {
+        if (confirm("Auto-reposition all nodes? This will overwrite your custom layout.")) {
+            autoLayout();
+        }
+    });
+
     // Initial Load
     loadState();
     render();
