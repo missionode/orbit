@@ -1,0 +1,723 @@
+// First, check for feature compatibility
+if (!('showOpenFilePicker' in window)) {
+    alert("Your browser does not support the File System Access API, which is required for file synchronization. Please try a modern browser like Chrome, Edge, or Opera.");
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('canvas');
+    const world = document.getElementById('world'); // New: Reference to the world container
+    const nodesContainer = document.getElementById('nodes-container');
+    const connectionsSvg = document.getElementById('connections');
+    const syncButton = document.getElementById('sync-button');
+
+    let state = {
+        nodes: [],
+        lastModified: new Date().toISOString()
+    };
+
+    // Viewport State
+    let pan = { x: 0, y: 0 };
+    let scale = 1; // Ready for zoom implementation later
+
+    let fileHandle = null;
+
+    const saveState = () => {
+        state.lastModified = new Date().toISOString();
+        localStorage.setItem('orbitMindData', JSON.stringify(state));
+    };
+
+    const loadState = () => {
+        const savedData = localStorage.getItem('orbitMindData');
+        if (savedData) {
+            state = JSON.parse(savedData);
+            // Migration: Ensure all nodes have an id if they don't (legacy data)
+            state.nodes.forEach(n => {
+                if (!n.id) n.id = `node-${Date.now()}-${Math.random()}`;
+            });
+        }
+    };
+
+    // New: Function to apply pan and scale to the world
+    const updateTransform = () => {
+        world.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${scale})`;
+        // The SVG element itself should also be transformed to match the world's coordinate system
+        // Its width/height should be large enough to cover the visible area, but its content
+        // will be drawn relative to its own (transformed) coordinate system.
+        // For simplicity, we'll let the CSS transform handle the visual positioning of the SVG.
+    };
+
+    const render = () => {
+        renderNodes();
+        renderConnections();
+        renderGroups();
+    };
+
+    const renderNodes = () => {
+        nodesContainer.innerHTML = '';
+        state.nodes.forEach(nodeData => {
+            createNodeElement(nodeData);
+        });
+    };
+
+    const renderGroups = () => {
+        const groupsSvg = document.getElementById('groups');
+        groupsSvg.innerHTML = '';
+
+        // 1. Group children by parent
+        const childrenByParent = {};
+        state.nodes.forEach(node => {
+            if (node.parentId) {
+                if (!childrenByParent[node.parentId]) {
+                    childrenByParent[node.parentId] = [];
+                }
+                childrenByParent[node.parentId].push(node);
+            }
+        });
+
+        // 2. Draw bubbles for parents with > 1 children
+        Object.entries(childrenByParent).forEach(([parentId, children]) => {
+            if (children.length > 1) {
+                const parent = state.nodes.find(n => n.id === parentId);
+                if (parent && parent.color) {
+                    drawGroupBubble(groupsSvg, parent, children);
+                }
+            }
+        });
+
+        // Sync size with connections SVG (which is synced to bounding box)
+        // We can just reuse the same sizing logic or let them share it.
+        // For simplicity, we'll rely on the CSS/JS update in renderConnections to handle the 'world' bounds,
+        // but we need to ensure the SVG attributes are set if we use the bounding box logic.
+        // Actually, let's update the sizing in renderConnections to apply to BOTH SVGs.
+    };
+
+    const drawGroupBubble = (svg, parent, children) => {
+        // Calculate radius to encompass all children
+        // Center is Parent
+        // We need DOM elements for precise sizes, but we can estimate or use state.
+        // Let's use state x/y + fixed size approximation.
+
+        const parentCx = parent.x + 75; // Half width
+        const parentCy = parent.y + 40; // Half height
+
+        let maxDist = 0;
+
+        children.forEach(child => {
+            const childCx = child.x + 75;
+            const childCy = child.y + 40;
+            const dist = Math.sqrt(Math.pow(childCx - parentCx, 2) + Math.pow(childCy - parentCy, 2));
+            // Add node radius approx (half diagonal of 150x80 is ~85)
+            maxDist = Math.max(maxDist, dist + 100);
+        });
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', parentCx);
+        circle.setAttribute('cy', parentCy);
+        circle.setAttribute('r', maxDist);
+        circle.setAttribute('fill', parent.color);
+        circle.setAttribute('fill-opacity', '0.1');
+        circle.setAttribute('stroke', parent.color);
+        circle.setAttribute('stroke-opacity', '0.2');
+        circle.setAttribute('stroke-width', '1');
+
+        svg.appendChild(circle);
+    };
+
+    const renderConnections = () => {
+        const groupsSvg = document.getElementById('groups'); // Get ref here
+
+        if (state.nodes.length === 0) {
+            connectionsSvg.innerHTML = '';
+            groupsSvg.innerHTML = '';
+            return;
+        }
+
+        // Calculate bounding box of all nodes to size the SVG correctly
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        state.nodes.forEach(node => {
+            minX = Math.min(minX, node.x);
+            minY = Math.min(minY, node.y);
+            maxX = Math.max(maxX, node.x + 150); // Add node width approximation
+            maxY = Math.max(maxY, node.y + 80);  // Add node height approximation
+        });
+
+        // Add padding for bezier curves and group bubbles
+        const padding = 1000;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        // Apply to Connections SVG
+        connectionsSvg.style.left = `${minX}px`;
+        connectionsSvg.style.top = `${minY}px`;
+        connectionsSvg.style.width = `${width}px`;
+        connectionsSvg.style.height = `${height}px`;
+        connectionsSvg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
+
+        // Apply to Groups SVG
+        groupsSvg.style.left = `${minX}px`;
+        groupsSvg.style.top = `${minY}px`;
+        groupsSvg.style.width = `${width}px`;
+        groupsSvg.style.height = `${height}px`;
+        groupsSvg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
+
+        connectionsSvg.innerHTML = '';
+
+        // Map for quick lookup
+        const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
+
+        state.nodes.forEach(node => {
+            if (node.parentId && nodeMap.has(node.parentId)) {
+                const parent = nodeMap.get(node.parentId);
+                drawConnection(parent, node);
+            }
+        });
+    };
+
+    const drawConnection = (parent, child) => {
+        // Calculate centers
+        // Note: We need to get the actual DOM elements to know width/height if dynamic, 
+        // but for simplicity/performance we can assume standard sizes or read from data if we stored it.
+        // Better: Read from DOM if available, else estimate.
+
+        const parentEl = document.querySelector(`.node[data-id="${parent.id}"]`);
+        const childEl = document.querySelector(`.node[data-id="${child.id}"]`);
+
+        if (!parentEl || !childEl) return;
+
+        // Positions are in state (world coordinates)
+        // Dimensions are static/CSS based, so we can just use offsetWidth/Height
+        const pRect = {
+            x: parent.x,
+            y: parent.y,
+            w: parentEl.offsetWidth,
+            h: parentEl.offsetHeight
+        };
+
+        const cRect = {
+            x: child.x,
+            y: child.y,
+            w: childEl.offsetWidth,
+            h: childEl.offsetHeight
+        };
+
+        const startX = pRect.x + pRect.w / 2;
+        const startY = pRect.y + pRect.h / 2;
+        const endX = cRect.x + cRect.w / 2;
+        const endY = cRect.y + cRect.h / 2;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+        // Bezier curve for "Orbit" look
+        const deltaX = endX - startX;
+        // Control points to make it curve nicely
+        const c1x = startX + deltaX * 0.4;
+        const c1y = startY;
+        const c2x = endX - deltaX * 0.4;
+        const c2y = endY;
+
+        const d = `M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
+
+        line.setAttribute('d', d);
+        // Use parent's color for the connection, or default gray
+        line.setAttribute('stroke', parent.color || '#555');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('fill', 'none');
+
+        connectionsSvg.appendChild(line);
+    };
+
+    const createNodeElement = (nodeData) => {
+        const node = document.createElement('div');
+        node.classList.add('node');
+        node.style.left = `${nodeData.x}px`;
+        node.style.top = `${nodeData.y}px`;
+        node.dataset.id = nodeData.id;
+
+        // Apply color if present
+        if (nodeData.color) {
+            node.style.borderColor = nodeData.color;
+            node.style.boxShadow = `0 4px 12px ${nodeData.color}40`; // 40 is hex transparency
+        }
+
+        const content = document.createElement('div');
+        content.classList.add('node-content');
+        content.setAttribute('contenteditable', 'true');
+        content.innerText = nodeData.content;
+
+        content.addEventListener('input', () => {
+            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            if (nodeToUpdate) {
+                nodeToUpdate.content = content.innerText;
+                saveState();
+            }
+        });
+
+        const controls = document.createElement('div');
+        controls.classList.add('node-controls');
+
+        // Color Picker
+        const colorWrapper = document.createElement('div');
+        colorWrapper.classList.add('color-picker-wrapper');
+        colorWrapper.title = 'Change Branch Color';
+
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.classList.add('color-picker');
+        colorInput.value = nodeData.color || '#444444'; // Default value
+
+        // Visual indicator
+        const colorIcon = document.createElement('div');
+        colorIcon.classList.add('color-icon');
+        colorIcon.style.backgroundColor = nodeData.color || '#555';
+
+        colorInput.addEventListener('input', (e) => {
+            const newColor = e.target.value;
+            colorIcon.style.backgroundColor = newColor;
+            updateBranchColor(nodeData.id, newColor);
+        });
+
+        colorWrapper.appendChild(colorInput);
+        colorWrapper.appendChild(colorIcon);
+
+        // Add Child Button
+        const addChildBtn = document.createElement('button');
+        addChildBtn.classList.add('control-btn', 'add-child');
+        addChildBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+        addChildBtn.title = 'Add Child Node';
+        addChildBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            addChildNode(nodeData);
+        });
+
+        // Delete Button
+        const deleteButton = document.createElement('button');
+        deleteButton.classList.add('control-btn', 'delete-node');
+        deleteButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        deleteButton.title = 'Delete Node';
+        deleteButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteNode(nodeData.id);
+        });
+
+        controls.appendChild(colorWrapper);
+        controls.appendChild(addChildBtn);
+        controls.appendChild(deleteButton);
+        node.appendChild(content);
+        node.appendChild(controls);
+        nodesContainer.appendChild(node);
+
+        makeDraggable(node);
+    };
+
+    const updateBranchColor = (rootId, newColor) => {
+        // Update the root node
+        const rootNode = state.nodes.find(n => n.id === rootId);
+        if (rootNode) {
+            rootNode.color = newColor;
+        }
+
+        // Recursively update all children
+        const updateChildren = (parentId) => {
+            state.nodes.forEach(n => {
+                if (n.parentId === parentId) {
+                    n.color = newColor;
+                    updateChildren(n.id);
+                }
+            });
+        };
+
+        updateChildren(rootId);
+        saveState();
+        render();
+    };
+
+    const addChildNode = (parentNode) => {
+        const { x, y } = findSmartPosition(parentNode, state.nodes);
+
+        let nodeColor = parentNode.color;
+
+        // Extended palette of vibrant colors
+        const colors = [
+            '#FF5733', '#33FF57', '#3357FF', '#F033FF', '#FF33A8',
+            '#33FFF5', '#FFC300', '#DAF7A6', '#FF6B6B', '#4ECDC4',
+            '#45B7D1', '#96CEB4', '#D4A5A5', '#9B59B6', '#3498DB'
+        ];
+        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+        // Logic for auto-coloring
+        if (!parentNode.parentId) {
+            // Case 1: Parent is Root. 
+            // The new node starts a new branch, so it gets a fresh color.
+            // The Root node itself remains neutral.
+            nodeColor = randomColor;
+        } else if (!nodeColor) {
+            // Case 2: Parent is NOT Root, but currently has no color.
+            // It is "becoming a parent" of a colored branch.
+            // We assign a color to the Parent, and the Child inherits it.
+            nodeColor = randomColor;
+            parentNode.color = nodeColor;
+
+            // Also update any existing children of this parent to match
+            // (In case it had children before but no color)
+            state.nodes.forEach(n => {
+                if (n.parentId === parentNode.id) {
+                    n.color = nodeColor;
+                }
+            });
+        }
+        // Case 3: Parent already has a color. Child simply inherits it (nodeColor is already parentNode.color).
+
+        const newNode = {
+            id: `node-${Date.now()}`,
+            content: 'New Idea',
+            x: x,
+            y: y,
+            parentId: parentNode.id,
+            color: nodeColor
+        };
+
+        state.nodes.push(newNode);
+        saveState();
+        render();
+    };
+
+    const findSmartPosition = (parent, allNodes) => {
+        const nodeWidth = 250; // Assumed width + gap
+        const nodeHeight = 150; // Assumed height + gap
+        const minDistance = 300; // Minimum distance from parent
+
+        // 1. Determine base angle. 
+        // If parent has a parent, continue that direction to maintain flow.
+        // If root, start at 0 (right).
+        let baseAngle = 0;
+        if (parent.parentId) {
+            const grandParent = allNodes.find(n => n.id === parent.parentId);
+            if (grandParent) {
+                baseAngle = Math.atan2(parent.y - grandParent.y, parent.x - grandParent.x);
+            }
+        }
+
+        // 2. Search for free spot spiraling out from base angle
+        let radius = minDistance;
+        let step = 0;
+        const maxSteps = 200;
+
+        while (step < maxSteps) {
+            // Alternate sides: 0, +30deg, -30deg, +60deg, ...
+            // This creates a fanning out effect from the "forward" direction
+            const sign = step % 2 === 0 ? 1 : -1;
+            const multiplier = Math.ceil(step / 2);
+            const angleOffset = sign * multiplier * (Math.PI / 8); // 22.5 degree increments
+            const currentAngle = baseAngle + angleOffset;
+
+            const candidateX = parent.x + Math.cos(currentAngle) * radius;
+            const candidateY = parent.y + Math.sin(currentAngle) * radius;
+
+            // Check collision with ALL nodes
+            let collision = false;
+            for (const node of allNodes) {
+                // Simple rectangular collision check
+                // We check if the new node's box overlaps with any existing node's box
+                const nx = node.x;
+                const ny = node.y;
+
+                if (
+                    candidateX < nx + nodeWidth &&
+                    candidateX + nodeWidth > nx &&
+                    candidateY < ny + nodeHeight &&
+                    candidateY + nodeHeight > ny
+                ) {
+                    collision = true;
+                    break;
+                }
+            }
+
+            if (!collision) {
+                return { x: candidateX, y: candidateY };
+            }
+
+            step++;
+            // If we've tried many angles (e.g. full circle), increase radius to find space further out
+            if (step > 16 && step % 16 === 0) {
+                radius += 100;
+            }
+        }
+
+        // Fallback if extremely crowded
+        return { x: parent.x + 50, y: parent.y + 50 };
+    };
+
+    const deleteNode = (nodeId) => {
+        // Optional: Delete children recursively? Or promote them?
+        // For now, just delete the node. Children will become orphans (lines disappear).
+        // Better: Delete subtree.
+        const nodesToDelete = new Set([nodeId]);
+
+        // Find all descendants
+        let added = true;
+        while (added) {
+            added = false;
+            state.nodes.forEach(n => {
+                if (n.parentId && nodesToDelete.has(n.parentId) && !nodesToDelete.has(n.id)) {
+                    nodesToDelete.add(n.id);
+                    added = true;
+                }
+            });
+        }
+
+        state.nodes = state.nodes.filter(n => !nodesToDelete.has(n.id));
+        saveState();
+        render();
+    };
+
+    const makeDraggable = (element) => {
+        let isDragging = false;
+        let dragStartX, dragStartY; // Mouse position when drag started (screen coordinates)
+        let initialNodeX, initialNodeY; // Node position when drag started (world coordinates)
+
+        const onMouseDown = (e) => {
+            // Only drag with left mouse button and not on content editable or buttons or color picker
+            if (e.button !== 0 ||
+                e.target.getAttribute('contenteditable') === 'true' ||
+                e.target.closest('button') ||
+                e.target.closest('.color-picker-wrapper')) return;
+
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+
+            // Get current node position from state (world coordinates)
+            const nodeId = element.dataset.id;
+            const nodeData = state.nodes.find(n => n.id === nodeId);
+            if (nodeData) {
+                initialNodeX = nodeData.x;
+                initialNodeY = nodeData.y;
+            }
+
+            element.style.cursor = 'grabbing';
+            canvas.style.cursor = 'grabbing'; // Change canvas cursor too for visual consistency
+            e.preventDefault();
+            e.stopPropagation(); // Crucial: Prevent canvas panning when dragging a node
+        };
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+
+            const deltaX = (e.clientX - dragStartX) / scale; // Adjust delta by scale
+            const deltaY = (e.clientY - dragStartY) / scale;
+
+            // Calculate new world position
+            const newX = initialNodeX + deltaX;
+            const newY = initialNodeY + deltaY;
+
+            element.style.left = `${newX}px`;
+            element.style.top = `${newY}px`;
+
+            // Update state immediately for smooth line rendering
+            const nodeId = element.dataset.id;
+            const nodeData = state.nodes.find(n => n.id === nodeId);
+            if (nodeData) {
+                nodeData.x = newX;
+                nodeData.y = newY;
+            }
+
+            // Re-draw connections efficiently
+            // We could optimize to only redraw lines connected to this node, 
+            // but for < 100 nodes, full redraw is fine.
+            renderConnections();
+        };
+
+        const onMouseUp = (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            element.style.cursor = 'move';
+            canvas.style.cursor = 'grab';
+            // element.style.zIndex = ''; // Reset z-index if it was changed
+
+            // Node position in state was already updated in onMouseMove, just save it.
+            const nodeId = element.dataset.id;
+            const nodeToUpdate = state.nodes.find(n => n.id === nodeId);
+            if (nodeToUpdate) { // Ensure node exists before saving
+                saveState();
+            }
+        };
+
+        element.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    };
+
+    // Canvas Panning Logic
+    let isPanning = false;
+    let panStartX, panStartY; // Mouse position when pan started (screen coordinates)
+    let initialPanX, initialPanY; // Pan offset when pan started
+
+    canvas.addEventListener('mousedown', (e) => {
+        // Only pan if clicking directly on canvas or world (not nodes or their children)
+        if (e.target === canvas || e.target === world || e.target === connectionsSvg || e.target.id === 'groups') {
+            isPanning = true;
+            panStartX = e.clientX;
+            panStartY = e.clientY;
+            initialPanX = pan.x;
+            initialPanY = pan.y;
+            canvas.style.cursor = 'grabbing';
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
+
+        const deltaX = e.clientX - panStartX;
+        const deltaY = e.clientY - panStartY;
+
+        pan.x = initialPanX + deltaX;
+        pan.y = initialPanY + deltaY;
+
+        updateTransform();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            canvas.style.cursor = 'grab';
+        }
+    });
+
+    // Zoom Logic
+    const zoom = (delta, center) => {
+        const oldScale = scale;
+        const zoomFactor = 1.1;
+
+        if (delta < 0) {
+            scale *= zoomFactor;
+        } else {
+            scale /= zoomFactor;
+        }
+
+        // Clamp scale
+        scale = Math.min(Math.max(0.1, scale), 5);
+
+        // Zoom towards center
+        // P_world = (P_screen - Pan) / Scale
+        // We want P_world to stay at P_screen
+        // NewPan = P_screen - P_world * NewScale
+
+        const mouseX = center.x;
+        const mouseY = center.y;
+
+        const worldX = (mouseX - pan.x) / oldScale;
+        const worldY = (mouseY - pan.y) / oldScale;
+
+        pan.x = mouseX - worldX * scale;
+        pan.y = mouseY - worldY * scale;
+
+        updateTransform();
+    };
+
+    canvas.addEventListener('wheel', (e) => {
+        if (e.ctrlKey) {
+            e.preventDefault();
+            zoom(e.deltaY, { x: e.clientX, y: e.clientY });
+        }
+    }, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey) {
+            if (e.key === '=' || e.key === '+') {
+                e.preventDefault();
+                zoom(-1, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+            } else if (e.key === '-') {
+                e.preventDefault();
+                zoom(1, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+            } else if (e.key === '0') {
+                e.preventDefault();
+                scale = 1;
+                pan = { x: 0, y: 0 };
+                updateTransform();
+            }
+        }
+    });
+
+    canvas.addEventListener('dblclick', (e) => {
+        // Do not create a node if the double-click was on an existing node or its children
+        if (e.target.closest('.node')) {
+            return;
+        }
+
+        // Calculate world coordinates for the new node
+        // Screen coordinates (e.clientX, e.clientY) - Pan offset = World coordinates * Scale
+        // World = (Screen - Pan) / Scale
+        const worldX = (e.clientX - pan.x) / scale;
+        const worldY = (e.clientY - pan.y) / scale;
+
+        const newNodeData = {
+            id: `node-${Date.now()}`,
+            content: 'Root Idea',
+            x: worldX - 75, // Center the node on the click point
+            y: worldY - 40,
+            parentId: null // Root node
+        };
+
+        state.nodes.push(newNodeData);
+        saveState();
+        createNodeElement(newNodeData);
+    });
+
+    syncButton.addEventListener('click', async () => {
+        try {
+            if (!fileHandle) {
+                [fileHandle] = await window.showOpenFilePicker({
+                    types: [{
+                        description: 'JSON Files',
+                        accept: { 'application/json': ['.json'] },
+                    }],
+                });
+            }
+
+            const file = await fileHandle.getFile();
+            const fileContent = await file.text();
+            const fileData = JSON.parse(fileContent);
+
+            const localLastModified = new Date(state.lastModified);
+            const fileLastModified = new Date(fileData.lastModified);
+
+            if (fileLastModified > localLastModified) {
+                console.log("File is newer. Loading data from file.");
+                state = fileData;
+                saveState();
+                render();
+                alert("Sync complete. Data loaded from the file.");
+            } else if (localLastModified > fileLastModified) {
+                console.log("Local data is newer. Writing to file.");
+                const writable = await fileHandle.createWritable();
+                await writable.write(JSON.stringify(state, null, 2));
+                await writable.close();
+                alert("Sync complete. Local changes have been saved to the file.");
+            } else {
+                console.log("Data is already in sync.");
+                alert("Everything is up to date!");
+            }
+        } catch (error) {
+            console.error('Sync failed:', error);
+            if (error.name === 'AbortError') {
+                fileHandle = null;
+            } else {
+                alert(`An error occurred during sync: ${error.message}`);
+            }
+        }
+    });
+
+    // Initial Load
+    loadState();
+    render();
+    updateTransform(); // Apply initial pan/scale
+
+    // Handle window resize to update connections if needed
+    window.addEventListener('resize', renderConnections);
+});
