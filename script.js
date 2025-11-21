@@ -149,6 +149,33 @@ document.addEventListener('DOMContentLoaded', () => {
                     descEl.innerText = nodeData.description || '';
                 }
 
+                // Update instructions visibility and content
+                const instructionsEl = nodeEl.querySelector('.node-instructions');
+                if (instructionsEl) {
+                    instructionsEl.style.display = nodeData.marked ? 'block' : 'none';
+
+                    // Refresh tags
+                    const tagsList = instructionsEl.querySelector('.tags-list');
+                    if (tagsList) {
+                        tagsList.innerHTML = '';
+                        (nodeData.instructions || []).forEach((inst, index) => {
+                            const tag = document.createElement('span');
+                            tag.classList.add('instruction-tag');
+                            tag.innerText = inst;
+                            tag.title = 'Click to remove';
+                            tag.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                if (confirm('Remove this instruction?')) {
+                                    nodeData.instructions.splice(index, 1);
+                                    saveState();
+                                    render(); // Full render to update this list
+                                }
+                            });
+                            tagsList.appendChild(tag);
+                        });
+                    }
+                }
+
                 // Update color visual cues
                 if (nodeData.color) {
                     nodeEl.style.borderColor = nodeData.marked ? '#00ff88' : nodeData.color;
@@ -667,6 +694,54 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // Instructions Container
+        const instructionsContainer = document.createElement('div');
+        instructionsContainer.classList.add('node-instructions');
+        instructionsContainer.style.display = nodeData.marked ? 'block' : 'none';
+
+        // List of tags
+        const tagsList = document.createElement('div');
+        tagsList.classList.add('tags-list');
+
+        const renderTags = () => {
+            tagsList.innerHTML = '';
+            (nodeData.instructions || []).forEach((inst, index) => {
+                const tag = document.createElement('span');
+                tag.classList.add('instruction-tag');
+                tag.innerText = inst;
+                tag.title = 'Click to remove';
+                tag.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('Remove this instruction?')) {
+                        nodeData.instructions.splice(index, 1);
+                        saveState();
+                        renderTags();
+                    }
+                });
+                tagsList.appendChild(tag);
+            });
+        };
+        renderTags();
+
+        // Input for new instruction
+        const tagInput = document.createElement('input');
+        tagInput.classList.add('instruction-input');
+        tagInput.placeholder = '+ Add instruction';
+        tagInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && tagInput.value.trim()) {
+                e.stopPropagation();
+                if (!nodeData.instructions) nodeData.instructions = [];
+                nodeData.instructions.push(tagInput.value.trim());
+                tagInput.value = '';
+                saveState();
+                renderTags();
+            }
+        });
+        tagInput.addEventListener('touchstart', stopTouchPropagation, { passive: false });
+
+        instructionsContainer.appendChild(tagsList);
+        instructionsContainer.appendChild(tagInput);
+
         // Prevent touch propagation
         heading.addEventListener('touchstart', stopTouchPropagation, { passive: false });
         description.addEventListener('touchstart', stopTouchPropagation, { passive: false });
@@ -783,6 +858,7 @@ document.addEventListener('DOMContentLoaded', () => {
         node.appendChild(linkHandle);
         node.appendChild(heading);
         node.appendChild(description);
+        node.appendChild(instructionsContainer);
         node.appendChild(controls);
         nodesContainer.appendChild(node);
 
@@ -1156,6 +1232,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.button !== 0 ||
                 e.target.getAttribute('contenteditable') === 'true' ||
                 e.target.closest('button') ||
+                e.target.closest('input') ||
                 e.target.closest('.color-picker-wrapper')) return;
 
             isDragging = true;
@@ -1223,6 +1300,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.touches.length !== 1 ||
                 e.target.getAttribute('contenteditable') === 'true' ||
                 e.target.closest('button') ||
+                e.target.closest('input') ||
                 e.target.closest('.color-picker-wrapper')) return;
 
             isDragging = true;
