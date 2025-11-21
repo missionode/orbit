@@ -66,9 +66,48 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderNodes = () => {
-        nodesContainer.innerHTML = '';
+        const existingNodeIds = new Set();
+
         state.nodes.forEach(nodeData => {
-            createNodeElement(nodeData);
+            existingNodeIds.add(nodeData.id);
+            let nodeEl = document.querySelector(`.node[data-id="${nodeData.id}"]`);
+
+            if (nodeEl) {
+                // Update position
+                nodeEl.style.left = `${nodeData.x}px`;
+                nodeEl.style.top = `${nodeData.y}px`;
+
+                // Update content if it changed externally
+                const contentEl = nodeEl.querySelector('.node-content');
+                if (contentEl && contentEl.innerText !== nodeData.content && document.activeElement !== contentEl) {
+                    contentEl.innerText = nodeData.content;
+                }
+
+                // Update color visual cues
+                if (nodeData.color) {
+                    nodeEl.style.borderColor = nodeData.color;
+                    nodeEl.style.boxShadow = `0 4px 12px ${nodeData.color}40`;
+                    const colorIcon = nodeEl.querySelector('.color-icon');
+                    if (colorIcon) colorIcon.style.backgroundColor = nodeData.color;
+                }
+
+                // Update link handle visibility
+                const linkHandle = nodeEl.querySelector('.link-handle');
+                if (linkHandle) {
+                    linkHandle.style.display = linkingFromId === nodeData.id ? 'flex' : 'none';
+                }
+
+            } else {
+                createNodeElement(nodeData);
+            }
+        });
+
+        // Remove deleted nodes
+        const allNodes = document.querySelectorAll('.node');
+        allNodes.forEach(el => {
+            if (!existingNodeIds.has(el.dataset.id)) {
+                el.remove();
+            }
         });
     };
 
@@ -139,15 +178,9 @@ document.addEventListener('DOMContentLoaded', () => {
         svg.appendChild(circle);
     };
 
+
+
     const renderConnections = () => {
-        const groupsSvg = document.getElementById('groups'); // Get ref here
-
-        if (state.nodes.length === 0) {
-            connectionsSvg.innerHTML = '';
-            groupsSvg.innerHTML = '';
-            return;
-        }
-
         // Calculate bounding box of all nodes to size the SVG correctly
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
@@ -176,15 +209,15 @@ document.addEventListener('DOMContentLoaded', () => {
         connectionsSvg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
 
         // Apply to Groups SVG
+        const groupsSvg = document.getElementById('groups');
         groupsSvg.style.left = `${minX}px`;
         groupsSvg.style.top = `${minY}px`;
         groupsSvg.style.width = `${width}px`;
         groupsSvg.style.height = `${height}px`;
         groupsSvg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
 
-        connectionsSvg.innerHTML = '';
-
-        // Map for quick lookup
+        // Optimized rendering: Update existing, create new, remove old
+        const activeConnectionIds = new Set();
         const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
 
         state.nodes.forEach(node => {
@@ -192,9 +225,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 node.parentIds.forEach(parentId => {
                     if (nodeMap.has(parentId)) {
                         const parent = nodeMap.get(parentId);
-                        drawConnection(parent, node);
+                        const connectionId = `conn-${parentId}-${node.id}`;
+                        activeConnectionIds.add(connectionId);
+                        drawConnection(parent, node, connectionId);
                     }
                 });
+            }
+        });
+
+        // Remove old connections
+        const existingGroups = connectionsSvg.querySelectorAll('.connection-group');
+        existingGroups.forEach(g => {
+            if (!activeConnectionIds.has(g.id)) {
+                g.remove();
             }
         });
     };
@@ -208,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const drawConnection = (parent, child) => {
+    const drawConnection = (parent, child, connectionId) => {
         const parentEl = document.querySelector(`.node[data-id="${parent.id}"]`);
         const childEl = document.querySelector(`.node[data-id="${child.id}"]`);
 
@@ -241,13 +284,44 @@ document.addEventListener('DOMContentLoaded', () => {
         const c2y = endY;
         const d = `M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}`;
 
-        // Create group
-        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        // Check if group exists
+        let group = document.getElementById(connectionId);
+
+        if (group) {
+            // Update existing
+            const line = group.querySelector('.visible-line');
+            const hitArea = group.querySelector('.hit-area');
+
+            if (line) {
+                line.setAttribute('d', d);
+                line.setAttribute('stroke', parent.color || '#555');
+            }
+            if (hitArea) {
+                hitArea.setAttribute('d', d);
+            }
+
+            // Update detach button position
+            const t = 0.5;
+            const midX = Math.pow(1 - t, 3) * startX + 3 * Math.pow(1 - t, 2) * t * c1x + 3 * (1 - t) * Math.pow(t, 2) * c2x + Math.pow(t, 3) * endX;
+            const midY = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * c1y + 3 * (1 - t) * Math.pow(t, 2) * c2y + Math.pow(t, 3) * endY;
+
+            const detachBtn = group.querySelector('.detach-btn');
+            if (detachBtn) {
+                detachBtn.setAttribute('transform', `translate(${midX - 10}, ${midY - 10})`);
+            }
+
+            return; // Done updating
+        }
+
+        // Create new group
+        group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.id = connectionId;
         group.classList.add('connection-group');
         group.style.pointerEvents = 'all'; // Ensure events are captured
 
         // 1. Visible Line
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        line.classList.add('visible-line');
         line.setAttribute('d', d);
         line.setAttribute('stroke', parent.color || '#555');
         line.setAttribute('stroke-width', '2');
@@ -255,6 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 2. Hit Area (Invisible, thicker)
         const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hitArea.classList.add('hit-area');
         hitArea.setAttribute('d', d);
         hitArea.setAttribute('stroke', 'transparent');
         hitArea.setAttribute('stroke-width', '20');
@@ -269,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const midY = Math.pow(1 - t, 3) * startY + 3 * Math.pow(1 - t, 2) * t * c1y + 3 * (1 - t) * Math.pow(t, 2) * c2y + Math.pow(t, 3) * endY;
 
         const detachBtn = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        detachBtn.classList.add('detach-btn');
         detachBtn.setAttribute('transform', `translate(${midX - 10}, ${midY - 10})`);
         detachBtn.style.display = 'none';
         detachBtn.style.cursor = 'pointer';
