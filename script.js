@@ -409,6 +409,71 @@ document.addEventListener('DOMContentLoaded', () => {
         render();
     };
 
+    const moveSubtree = (nodeId, dx, dy, visited = new Set()) => {
+        if (visited.has(nodeId)) return;
+        visited.add(nodeId);
+
+        const node = state.nodes.find(n => n.id === nodeId);
+        if (node) {
+            node.x += dx;
+            node.y += dy;
+
+            // Find children (nodes that have this node as a parent)
+            const children = state.nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId));
+            children.forEach(child => moveSubtree(child.id, dx, dy, visited));
+        }
+    };
+
+    const resolveOverlaps = (movedNodeId) => {
+        const movedNode = state.nodes.find(n => n.id === movedNodeId);
+        if (!movedNode) return;
+
+        const minDistance = 220; // Minimum spacing between nodes (node width + gap)
+        let iterations = 0;
+        const maxIterations = 5; // Prevent infinite loops/jitter
+
+        // Simple iterative relaxation
+        while (iterations < maxIterations) {
+            let moved = false;
+            state.nodes.forEach(other => {
+                if (other.id === movedNodeId) return;
+
+                // Check distance
+                const dx = movedNode.x - other.x;
+                const dy = movedNode.y - other.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < minDistance) {
+                    // Collision detected
+                    // Push movedNode away from 'other'
+                    let pushX = dx;
+                    let pushY = dy;
+
+                    if (dist === 0) {
+                        pushX = Math.random() - 0.5;
+                        pushY = 1;
+                    }
+
+                    // Normalize
+                    const len = Math.sqrt(pushX * pushX + pushY * pushY);
+                    const nx = pushX / len;
+                    const ny = pushY / len;
+
+                    // Move by overlap amount + buffer
+                    const overlap = minDistance - dist;
+                    const moveX = nx * (overlap + 20);
+                    const moveY = ny * (overlap + 20);
+
+                    moveSubtree(movedNodeId, moveX, moveY);
+                    moved = true;
+                }
+            });
+
+            if (!moved) break;
+            iterations++;
+        }
+    };
+
     const repositionSharedNode = (childNode) => {
         if (!childNode.parentIds || childNode.parentIds.length === 0) return;
 
@@ -426,11 +491,47 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (count > 0) {
-            // Move to centroid + some offset to avoid direct overlap if parents are close
-            // But usually parents are far apart.
-            // Let's just place it in the middle.
-            childNode.x = sumX / count;
-            childNode.y = (sumY / count) + 150; // Push it down a bit
+            // Move to centroid
+            const centerX = sumX / count;
+            const centerY = sumY / count;
+
+            let targetX = childNode.x;
+            let targetY = childNode.y;
+
+            // Calculate vector from centroid to current child position
+            let dx = childNode.x - centerX;
+            let dy = childNode.y - centerY;
+
+            // If child is exactly at centroid (rare) or very close, push down
+            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+                dx = 0;
+                dy = 150;
+            }
+
+            // Normalize and ensure minimum distance
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const desiredDist = 200;
+
+            if (len < desiredDist) {
+                const scale = len > 0 ? desiredDist / len : 1;
+                targetX = centerX + dx * scale;
+                targetY = centerY + dy * scale;
+            } else {
+                if (childNode.y < centerY + 50) {
+                    targetY = centerY + 150;
+                }
+            }
+
+            // Calculate delta and move entire subtree
+            const deltaX = targetX - childNode.x;
+            const deltaY = targetY - childNode.y;
+
+            if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+                moveSubtree(childNode.id, deltaX, deltaY);
+            }
+
+            // Resolve collisions for the moved branch
+            resolveOverlaps(childNode.id);
         }
     };
 
