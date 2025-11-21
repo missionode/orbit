@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let pan = { x: 0, y: 0 };
     let scale = 1; // Ready for zoom implementation later
 
+    // Interaction State
+    let linkingFromId = null;
+
     let fileHandle = null;
 
     const saveState = () => {
@@ -30,9 +33,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const savedData = localStorage.getItem('orbitMindData');
         if (savedData) {
             state = JSON.parse(savedData);
-            // Migration: Ensure all nodes have an id if they don't (legacy data)
+            // Migration: Ensure all nodes have an id and convert parentId to parentIds
             state.nodes.forEach(n => {
                 if (!n.id) n.id = `node-${Date.now()}-${Math.random()}`;
+
+                // Migrate single parent to multiple parents
+                if (!n.parentIds) {
+                    n.parentIds = [];
+                    if (n.parentId) {
+                        n.parentIds.push(n.parentId);
+                    }
+                }
+                // Cleanup old property
+                delete n.parentId;
             });
         }
     };
@@ -64,13 +77,16 @@ document.addEventListener('DOMContentLoaded', () => {
         groupsSvg.innerHTML = '';
 
         // 1. Group children by parent
+        // Since a node can have multiple parents, it can belong to multiple groups.
         const childrenByParent = {};
         state.nodes.forEach(node => {
-            if (node.parentId) {
-                if (!childrenByParent[node.parentId]) {
-                    childrenByParent[node.parentId] = [];
-                }
-                childrenByParent[node.parentId].push(node);
+            if (node.parentIds && node.parentIds.length > 0) {
+                node.parentIds.forEach(pId => {
+                    if (!childrenByParent[pId]) {
+                        childrenByParent[pId] = [];
+                    }
+                    childrenByParent[pId].push(node);
+                });
             }
         });
 
@@ -115,9 +131,9 @@ document.addEventListener('DOMContentLoaded', () => {
         circle.setAttribute('cy', parentCy);
         circle.setAttribute('r', maxDist);
         circle.setAttribute('fill', parent.color);
-        circle.setAttribute('fill-opacity', '0.1');
+        circle.setAttribute('fill-opacity', '0.05'); // Even more subtle for overlaps
         circle.setAttribute('stroke', parent.color);
-        circle.setAttribute('stroke-opacity', '0.2');
+        circle.setAttribute('stroke-opacity', '0.1');
         circle.setAttribute('stroke-width', '1');
 
         svg.appendChild(circle);
@@ -172,9 +188,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
 
         state.nodes.forEach(node => {
-            if (node.parentId && nodeMap.has(node.parentId)) {
-                const parent = nodeMap.get(node.parentId);
-                drawConnection(parent, node);
+            if (node.parentIds && node.parentIds.length > 0) {
+                node.parentIds.forEach(parentId => {
+                    if (nodeMap.has(parentId)) {
+                        const parent = nodeMap.get(parentId);
+                        drawConnection(parent, node);
+                    }
+                });
             }
         });
     };
@@ -245,6 +265,13 @@ document.addEventListener('DOMContentLoaded', () => {
             node.style.boxShadow = `0 4px 12px ${nodeData.color}40`; // 40 is hex transparency
         }
 
+        // Visual cue if this node is the source of a link
+        if (linkingFromId === nodeData.id) {
+            node.style.borderColor = '#fff';
+            node.style.boxShadow = '0 0 15px #fff';
+            node.style.zIndex = '1000';
+        }
+
         const content = document.createElement('div');
         content.classList.add('node-content');
         content.setAttribute('contenteditable', 'true');
@@ -255,6 +282,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (nodeToUpdate) {
                 nodeToUpdate.content = content.innerText;
                 saveState();
+            }
+        });
+
+        // Click to complete link
+        node.addEventListener('click', (e) => {
+            if (linkingFromId && linkingFromId !== nodeData.id) {
+                e.stopPropagation();
+                completeLink(linkingFromId, nodeData.id);
             }
         });
 
@@ -285,6 +320,17 @@ document.addEventListener('DOMContentLoaded', () => {
         colorWrapper.appendChild(colorInput);
         colorWrapper.appendChild(colorIcon);
 
+        // Link Button
+        const linkBtn = document.createElement('button');
+        linkBtn.classList.add('control-btn', 'link-node');
+        linkBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+        linkBtn.title = 'Link to another node';
+        linkBtn.style.color = linkingFromId === nodeData.id ? '#fff' : '#aaa';
+        linkBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startLinkMode(nodeData.id);
+        });
+
         // Add Child Button
         const addChildBtn = document.createElement('button');
         addChildBtn.classList.add('control-btn', 'add-child');
@@ -306,6 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         controls.appendChild(colorWrapper);
+        controls.appendChild(linkBtn);
         controls.appendChild(addChildBtn);
         controls.appendChild(deleteButton);
         node.appendChild(content);
@@ -313,6 +360,67 @@ document.addEventListener('DOMContentLoaded', () => {
         nodesContainer.appendChild(node);
 
         makeDraggable(node);
+    };
+
+    const startLinkMode = (id) => {
+        if (linkingFromId === id) {
+            linkingFromId = null; // Toggle off
+        } else {
+            linkingFromId = id;
+            alert("Select another node to connect to.");
+        }
+        renderNodes(); // Re-render to show visual cue
+    };
+
+    const completeLink = (parentId, childId) => {
+        const child = state.nodes.find(n => n.id === childId);
+        if (!child) return;
+
+        // Prevent self-linking and duplicate linking
+        if (parentId === childId) return;
+        if (child.parentIds.includes(parentId)) {
+            alert("Nodes are already connected.");
+            linkingFromId = null;
+            renderNodes();
+            return;
+        }
+
+        // Check for cycles? (Optional, but good for mind maps)
+        // For now, allow general graph connections.
+
+        child.parentIds.push(parentId);
+
+        // Reposition the child to be equidistant from all parents
+        repositionSharedNode(child);
+
+        linkingFromId = null;
+        saveState();
+        render();
+    };
+
+    const repositionSharedNode = (childNode) => {
+        if (!childNode.parentIds || childNode.parentIds.length === 0) return;
+
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+
+        childNode.parentIds.forEach(pId => {
+            const parent = state.nodes.find(n => n.id === pId);
+            if (parent) {
+                sumX += parent.x;
+                sumY += parent.y;
+                count++;
+            }
+        });
+
+        if (count > 0) {
+            // Move to centroid + some offset to avoid direct overlap if parents are close
+            // But usually parents are far apart.
+            // Let's just place it in the middle.
+            childNode.x = sumX / count;
+            childNode.y = (sumY / count) + 150; // Push it down a bit
+        }
     };
 
     const updateBranchColor = (rootId, newColor) => {
@@ -323,9 +431,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Recursively update all children
+        // With multiple parents, this might overwrite colors from other parents.
+        // We'll stick to simple propagation for now.
         const updateChildren = (parentId) => {
             state.nodes.forEach(n => {
-                if (n.parentId === parentId) {
+                if (n.parentIds && n.parentIds.includes(parentId)) {
                     n.color = newColor;
                     updateChildren(n.id);
                 }
@@ -351,7 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
         // Logic for auto-coloring
-        if (!parentNode.parentId) {
+        if (!parentNode.parentIds || parentNode.parentIds.length === 0) {
             // Case 1: Parent is Root. 
             // The new node starts a new branch, so it gets a fresh color.
             // The Root node itself remains neutral.
@@ -366,7 +476,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Also update any existing children of this parent to match
             // (In case it had children before but no color)
             state.nodes.forEach(n => {
-                if (n.parentId === parentNode.id) {
+                if (n.parentIds && n.parentIds.includes(parentNode.id)) {
                     n.color = nodeColor;
                 }
             });
@@ -378,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
             content: 'New Idea',
             x: x,
             y: y,
-            parentId: parentNode.id,
+            parentIds: [parentNode.id],
             color: nodeColor
         };
 
@@ -396,8 +506,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // If parent has a parent, continue that direction to maintain flow.
         // If root, start at 0 (right).
         let baseAngle = 0;
-        if (parent.parentId) {
-            const grandParent = allNodes.find(n => n.id === parent.parentId);
+        if (parent.parentIds && parent.parentIds.length > 0) {
+            const grandParent = allNodes.find(n => n.id === parent.parentIds[0]);
             if (grandParent) {
                 baseAngle = Math.atan2(parent.y - grandParent.y, parent.x - grandParent.x);
             }
@@ -454,24 +564,51 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const deleteNode = (nodeId) => {
-        // Optional: Delete children recursively? Or promote them?
-        // For now, just delete the node. Children will become orphans (lines disappear).
-        // Better: Delete subtree.
+        // 1. Remove this node from state
+        // 2. For all children that had this node as a parent, remove it from their parentIds
+        // 3. If a child has NO parentIds left, delete it recursively?
+
         const nodesToDelete = new Set([nodeId]);
 
-        // Find all descendants
-        let added = true;
-        while (added) {
-            added = false;
+        // Helper to find orphans
+        const findOrphans = () => {
+            let changed = false;
             state.nodes.forEach(n => {
-                if (n.parentId && nodesToDelete.has(n.parentId) && !nodesToDelete.has(n.id)) {
-                    nodesToDelete.add(n.id);
-                    added = true;
+                if (nodesToDelete.has(n.id)) return; // Already marked for deletion
+
+                // Check if this node has any parents that are being deleted
+                if (n.parentIds && n.parentIds.some(pId => nodesToDelete.has(pId))) {
+                    // Filter out parents that are being deleted
+                    const remainingParents = n.parentIds.filter(pId => !nodesToDelete.has(pId));
+
+                    // If it had parents, and now has none remaining, it becomes an orphan
+                    // and should also be deleted.
+                    // We check n.parentIds.length > 0 to ensure we don't delete true root nodes
+                    // that never had parents.
+                    if (remainingParents.length === 0 && n.parentIds.length > 0) {
+                        nodesToDelete.add(n.id);
+                        changed = true;
+                    }
                 }
             });
-        }
+            return changed;
+        };
 
+        // Iteratively find all cascading deletions
+        // This loop continues as long as new orphans are found in each pass.
+        while (findOrphans()) { }
+
+        // Apply deletions and clean up parentIds for survivors
         state.nodes = state.nodes.filter(n => !nodesToDelete.has(n.id));
+
+        // For any nodes that survived, ensure their parentIds list doesn't contain
+        // any IDs of nodes that were just deleted.
+        state.nodes.forEach(n => {
+            if (n.parentIds) {
+                n.parentIds = n.parentIds.filter(pId => !nodesToDelete.has(pId));
+            }
+        });
+
         saveState();
         render();
     };
