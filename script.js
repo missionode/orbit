@@ -494,23 +494,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Update other functions to use getCurrentCanvas().nodes
     // ... (createNodeElement, deleteNode, etc. need to use getCurrentCanvas().nodes)
-    // Since we updated renderNodes, we need to ensure other functions that access state.nodes are updated.
-    // I will override the `state.nodes` access in other functions by creating a proxy or just updating them.
-    // Wait, `state.nodes` is used in MANY places. 
-    // Better approach: Define a getter for `state.nodes`? No, `state` is a plain object.
-    // I should update `state.nodes` to be a getter or update all references.
-    // Updating all references is safer.
-    // Let's replace `state.nodes` with `getCurrentCanvas().nodes` in the remaining functions.
 
-    // Actually, for cleaner code, I'll define a helper variable inside functions or just replace the text.
-    // But `state.nodes` is used in `createNodeElement`, `deleteNode`, `addChildNode`, `completeLink`, `repositionSharedNode`, `moveSubtree`, `resolveOverlaps`, `autoLayout`.
-
-    // I will update those functions in the next step or this step if possible.
-    // Since this replacement is large, I'll stick to replacing render functions here and then do a global replace for logic functions.
 
 
     const detachNode = (parentId, childId) => {
-        const child = state.nodes.find(n => n.id === childId);
+        const nodes = getCurrentCanvas().nodes;
+        const child = nodes.find(n => n.id === childId);
         if (child && child.parentIds) {
             child.parentIds = child.parentIds.filter(id => id !== parentId);
             saveState();
@@ -685,7 +674,7 @@ document.addEventListener('DOMContentLoaded', () => {
         content.innerText = nodeData.content;
 
         content.addEventListener('input', () => {
-            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            const nodeToUpdate = getCurrentCanvas().nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
                 nodeToUpdate.content = content.innerText;
                 saveState();
@@ -1384,7 +1373,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Get current node position from state (world coordinates)
             const nodeId = element.dataset.id;
-            const nodeData = state.nodes.find(n => n.id === nodeId);
+            const nodeData = getCurrentCanvas().nodes.find(n => n.id === nodeId);
             if (nodeData) {
                 initialNodeX = nodeData.x;
                 initialNodeY = nodeData.y;
@@ -1411,7 +1400,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update state immediately for smooth line rendering
             const nodeId = element.dataset.id;
-            const nodeData = state.nodes.find(n => n.id === nodeId);
+            const nodeData = getCurrentCanvas().nodes.find(n => n.id === nodeId);
             if (nodeData) {
                 nodeData.x = newX;
                 nodeData.y = newY;
@@ -1432,7 +1421,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Node position in state was already updated in onMouseMove, just save it.
             const nodeId = element.dataset.id;
-            const nodeToUpdate = state.nodes.find(n => n.id === nodeId);
+            const nodeToUpdate = getCurrentCanvas().nodes.find(n => n.id === nodeId);
             if (nodeToUpdate) {
                 saveState();
             }
