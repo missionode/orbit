@@ -1228,25 +1228,38 @@ document.addEventListener('DOMContentLoaded', () => {
         const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
         // Logic for auto-coloring
-        if (!parentNode.parentIds || parentNode.parentIds.length === 0) {
+        const isRoot = !parentNode.parentIds || parentNode.parentIds.length === 0;
+
+        if (isRoot) {
             // Case 1: Parent is Root.
             // The new node starts a new branch, so it gets a fresh color.
             // The Root node itself remains neutral.
             nodeColor = randomColor;
-        } else if (!nodeColor) {
-            // Case 2: Parent is NOT Root, but currently has no color.
-            // It is "becoming a parent" of a colored branch.
-            // We assign a color to the Parent, and the Child inherits it.
-            nodeColor = randomColor;
-            parentNode.color = nodeColor;
+        } else {
+            // Check if this parent already has enough children to form a group
+            const existingChildren = nodes.filter(n => n.parentIds && n.parentIds.includes(parentNode.id));
 
-            // Also update any existing children of this parent to match
-            // (In case it had children before but no color)
-            nodes.forEach(n => {
-                if (n.parentIds && n.parentIds.includes(parentNode.id)) {
-                    n.color = nodeColor;
-                }
-            });
+            if (existingChildren.length >= 2) {
+                // Parent has 2 or more children already.
+                // Change the color of the entire group (Parent + Children) to a new random color
+                // to distinguish this dense branch.
+                nodeColor = randomColor;
+                updateBranchColor(parentNode.id, nodeColor);
+            } else if (!nodeColor) {
+                // Case 2: Parent is NOT Root, but currently has no color.
+                // It is "becoming a parent" of a colored branch.
+                // We assign a color to the Parent, and the Child inherits it.
+                nodeColor = randomColor;
+                parentNode.color = nodeColor;
+
+                // Also update any existing children of this parent to match
+                // (In case it had children before but no color)
+                nodes.forEach(n => {
+                    if (n.parentIds && n.parentIds.includes(parentNode.id)) {
+                        n.color = nodeColor;
+                    }
+                });
+            }
         }
         // Case 3: Parent already has a color. Child simply inherits it (nodeColor is already parentNode.color).
 
