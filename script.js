@@ -11,20 +11,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncButton = document.getElementById('sync-button');
 
     let state = {
-        nodes: [],
-        lastModified: new Date().toISOString()
+        canvases: [
+            {
+                id: 'default',
+                title: 'Untitled Canvas',
+                nodes: [],
+                pan: { x: 0, y: 0 },
+                scale: 1,
+                lastModified: new Date().toISOString()
+            }
+        ],
+        currentCanvasId: 'default'
     };
 
-    // Viewport State
+    // Helper to get current canvas
+    const getCurrentCanvas = () => state.canvases.find(c => c.id === state.currentCanvasId) || state.canvases[0];
+
+    // Viewport State (Now derived from current canvas, but we keep local vars for performance)
     let pan = { x: 0, y: 0 };
-    let scale = 1; // Ready for zoom implementation later
+    let scale = 1;
 
     // Interaction State
     let linkingFromId = null;
 
     let fileHandle = null;
 
-    // History State
+    // History State (Per canvas? For simplicity, global history clears on switch)
     let history = [];
     let historyIndex = -1;
     let isUndoing = false;
@@ -72,8 +84,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const saveState = (skipHistory = false) => {
-        state.lastModified = new Date().toISOString();
+        const currentCanvas = getCurrentCanvas();
+        currentCanvas.lastModified = new Date().toISOString();
+        // Update current canvas props
+        currentCanvas.pan = pan;
+        currentCanvas.scale = scale;
+
         localStorage.setItem('orbitMindData', JSON.stringify(state));
+
         if (!skipHistory) {
             pushHistory();
         }
@@ -82,22 +100,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadState = () => {
         const savedData = localStorage.getItem('orbitMindData');
         if (savedData) {
-            state = JSON.parse(savedData);
-            // Migration: Ensure all nodes have an id and convert parentId to parentIds
-            state.nodes.forEach(n => {
-                if (!n.id) n.id = `node-${Date.now()}-${Math.random()}`;
+            const parsed = JSON.parse(savedData);
 
-                // Migrate single parent to multiple parents
-                if (!n.parentIds) {
-                    n.parentIds = [];
-                    if (n.parentId) {
-                        n.parentIds.push(n.parentId);
+            // Migration: Check if it's the old single-canvas format
+            if (Array.isArray(parsed.nodes)) {
+                state.canvases[0].nodes = parsed.nodes;
+                state.canvases[0].lastModified = parsed.lastModified || new Date().toISOString();
+            } else {
+                // New format
+                state = parsed;
+            }
+
+            // Ensure all nodes have IDs (Migration safety)
+            state.canvases.forEach(canvas => {
+                canvas.nodes.forEach(n => {
+                    if (!n.id) n.id = `node-${Date.now()}-${Math.random()}`;
+                    if (!n.parentIds) {
+                        n.parentIds = [];
+                        if (n.parentId) n.parentIds.push(n.parentId);
                     }
-                }
-                // Cleanup old property
-                delete n.parentId;
+                    delete n.parentId;
+                });
             });
         }
+
+        // Load viewport from current canvas
+        const currentCanvas = getCurrentCanvas();
+        pan = currentCanvas.pan || { x: 0, y: 0 };
+        scale = currentCanvas.scale || 1;
+
+        // Update Title UI
+        document.getElementById('canvas-title').innerText = currentCanvas.title;
     };
 
     // New: Function to apply pan and scale to the world
@@ -116,11 +149,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderNodes = () => {
+        const currentCanvas = getCurrentCanvas();
         const existingNodeIds = new Set();
 
         // Calculate parent counts to identify leaf nodes
         const parentCounts = {};
-        state.nodes.forEach(n => {
+        currentCanvas.nodes.forEach(n => {
             if (n.parentIds) {
                 n.parentIds.forEach(pId => {
                     parentCounts[pId] = (parentCounts[pId] || 0) + 1;
@@ -128,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        state.nodes.forEach(nodeData => {
+        currentCanvas.nodes.forEach(nodeData => {
             existingNodeIds.add(nodeData.id);
             let nodeEl = document.querySelector(`.node[data-id="${nodeData.id}"]`);
 
@@ -248,11 +282,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderGroups = () => {
         const groupsSvg = document.getElementById('groups');
         groupsSvg.innerHTML = '';
+        const currentCanvas = getCurrentCanvas();
 
         // 1. Group children by parent
         // Since a node can have multiple parents, it can belong to multiple groups.
         const childrenByParent = {};
-        state.nodes.forEach(node => {
+        currentCanvas.nodes.forEach(node => {
             if (node.parentIds && node.parentIds.length > 0) {
                 node.parentIds.forEach(pId => {
                     if (!childrenByParent[pId]) {
@@ -266,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. Draw bubbles for parents with > 1 children
         Object.entries(childrenByParent).forEach(([parentId, children]) => {
             if (children.length > 1) {
-                const parent = state.nodes.find(n => n.id === parentId);
+                const parent = currentCanvas.nodes.find(n => n.id === parentId);
                 if (parent && parent.color) {
                     drawGroupBubble(groupsSvg, parent, children);
                 }
@@ -315,10 +350,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     const renderConnections = () => {
+        const currentCanvas = getCurrentCanvas();
+
         // Calculate bounding box of all nodes to size the SVG correctly
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-        state.nodes.forEach(node => {
+        currentCanvas.nodes.forEach(node => {
             minX = Math.min(minX, node.x);
             minY = Math.min(minY, node.y);
             maxX = Math.max(maxX, node.x + 150); // Add node width approximation
@@ -352,9 +389,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Optimized rendering: Update existing, create new, remove old
         const activeConnectionIds = new Set();
-        const nodeMap = new Map(state.nodes.map(n => [n.id, n]));
+        const nodeMap = new Map(currentCanvas.nodes.map(n => [n.id, n]));
 
-        state.nodes.forEach(node => {
+        currentCanvas.nodes.forEach(node => {
             if (node.parentIds && node.parentIds.length > 0) {
                 node.parentIds.forEach(parentId => {
                     if (nodeMap.has(parentId)) {
@@ -375,6 +412,102 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     };
+
+    // Canvas Management Logic
+    const switchCanvas = (direction) => {
+        const currentIndex = state.canvases.findIndex(c => c.id === state.currentCanvasId);
+        let newIndex;
+
+        if (direction === 'next') {
+            newIndex = (currentIndex + 1) % state.canvases.length;
+        } else {
+            newIndex = (currentIndex - 1 + state.canvases.length) % state.canvases.length;
+        }
+
+        // Save current viewport before switching
+        const currentCanvas = state.canvases[currentIndex];
+        currentCanvas.pan = pan;
+        currentCanvas.scale = scale;
+
+        state.currentCanvasId = state.canvases[newIndex].id;
+
+        // Load new viewport
+        const newCanvas = state.canvases[newIndex];
+        pan = newCanvas.pan || { x: 0, y: 0 };
+        scale = newCanvas.scale || 1;
+
+        // Clear history for simplicity
+        history = [];
+        historyIndex = -1;
+        pushHistory(); // Initial history for new canvas
+
+        // Update UI
+        document.getElementById('canvas-title').innerText = newCanvas.title;
+        saveState(true); // Save switch
+        render();
+        updateTransform();
+    };
+
+    const addCanvas = () => {
+        const newId = `canvas-${Date.now()}`;
+        const newCanvas = {
+            id: newId,
+            title: 'Untitled Canvas',
+            nodes: [],
+            pan: { x: 0, y: 0 },
+            scale: 1,
+            lastModified: new Date().toISOString()
+        };
+
+        state.canvases.push(newCanvas);
+        state.currentCanvasId = newId;
+
+        // Reset View
+        pan = { x: 0, y: 0 };
+        scale = 1;
+
+        history = [];
+        historyIndex = -1;
+        pushHistory();
+
+        document.getElementById('canvas-title').innerText = newCanvas.title;
+        saveState(true);
+        render();
+        updateTransform();
+    };
+
+    // Event Listeners for Canvas UI
+    document.getElementById('prev-canvas').addEventListener('click', () => switchCanvas('prev'));
+    document.getElementById('next-canvas').addEventListener('click', () => switchCanvas('next'));
+    document.getElementById('add-canvas').addEventListener('click', addCanvas);
+
+    const titleEl = document.getElementById('canvas-title');
+    titleEl.addEventListener('input', () => {
+        const currentCanvas = getCurrentCanvas();
+        currentCanvas.title = titleEl.innerText;
+        saveState(true); // Skip history for title edits
+    });
+
+    document.getElementById('focus-button').addEventListener('click', () => {
+        document.body.classList.toggle('focus-mode');
+    });
+
+    // Update other functions to use getCurrentCanvas().nodes
+    // ... (createNodeElement, deleteNode, etc. need to use getCurrentCanvas().nodes)
+    // Since we updated renderNodes, we need to ensure other functions that access state.nodes are updated.
+    // I will override the `state.nodes` access in other functions by creating a proxy or just updating them.
+    // Wait, `state.nodes` is used in MANY places. 
+    // Better approach: Define a getter for `state.nodes`? No, `state` is a plain object.
+    // I should update `state.nodes` to be a getter or update all references.
+    // Updating all references is safer.
+    // Let's replace `state.nodes` with `getCurrentCanvas().nodes` in the remaining functions.
+
+    // Actually, for cleaner code, I'll define a helper variable inside functions or just replace the text.
+    // But `state.nodes` is used in `createNodeElement`, `deleteNode`, `addChildNode`, `completeLink`, `repositionSharedNode`, `moveSubtree`, `resolveOverlaps`, `autoLayout`.
+
+    // I will update those functions in the next step or this step if possible.
+    // Since this replacement is large, I'll stick to replacing render functions here and then do a global replace for logic functions.
+
 
     const detachNode = (parentId, childId) => {
         const child = state.nodes.find(n => n.id === childId);
@@ -653,7 +786,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         heading.addEventListener('input', () => {
-            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            const nodes = getCurrentCanvas().nodes;
+            const nodeToUpdate = nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
                 nodeToUpdate.heading = heading.innerText;
                 if (nodeToUpdate.content) delete nodeToUpdate.content;
@@ -681,7 +815,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         description.addEventListener('input', () => {
-            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            const nodes = getCurrentCanvas().nodes;
+            const nodeToUpdate = nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
                 nodeToUpdate.description = description.innerText;
                 saveState(true); // Skip history on continuous input
@@ -756,7 +891,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         markBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const nodeToUpdate = state.nodes.find(n => n.id === nodeData.id);
+            const nodes = getCurrentCanvas().nodes;
+            const nodeToUpdate = nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
                 nodeToUpdate.marked = !nodeToUpdate.marked;
                 saveState();
@@ -881,7 +1017,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const completeLink = (parentId, childId) => {
-        const child = state.nodes.find(n => n.id === childId);
+        const nodes = getCurrentCanvas().nodes;
+        const child = nodes.find(n => n.id === childId);
         if (!child) return;
 
         // Prevent self-linking and duplicate linking
@@ -910,19 +1047,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (visited.has(nodeId)) return;
         visited.add(nodeId);
 
-        const node = state.nodes.find(n => n.id === nodeId);
+        const nodes = getCurrentCanvas().nodes;
+        const node = nodes.find(n => n.id === nodeId);
         if (node) {
             node.x += dx;
             node.y += dy;
 
             // Find children (nodes that have this node as a parent)
-            const children = state.nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId));
+            const children = nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId));
             children.forEach(child => moveSubtree(child.id, dx, dy, visited));
         }
     };
 
     const resolveOverlaps = (movedNodeId) => {
-        const movedNode = state.nodes.find(n => n.id === movedNodeId);
+        const nodes = getCurrentCanvas().nodes;
+        const movedNode = nodes.find(n => n.id === movedNodeId);
         if (!movedNode) return;
 
         const minDistance = 220; // Minimum spacing between nodes (node width + gap)
@@ -932,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Simple iterative relaxation
         while (iterations < maxIterations) {
             let moved = false;
-            state.nodes.forEach(other => {
+            nodes.forEach(other => {
                 if (other.id === movedNodeId) return;
 
                 // Check distance
@@ -974,12 +1113,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const repositionSharedNode = (childNode) => {
         if (!childNode.parentIds || childNode.parentIds.length === 0) return;
 
+        const nodes = getCurrentCanvas().nodes;
         let sumX = 0;
         let sumY = 0;
         let count = 0;
 
         childNode.parentIds.forEach(pId => {
-            const parent = state.nodes.find(n => n.id === pId);
+            const parent = nodes.find(n => n.id === pId);
             if (parent) {
                 sumX += parent.x;
                 sumY += parent.y;
@@ -1033,8 +1173,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const updateBranchColor = (rootId, newColor) => {
+        const nodes = getCurrentCanvas().nodes;
         // Update the root node
-        const rootNode = state.nodes.find(n => n.id === rootId);
+        const rootNode = nodes.find(n => n.id === rootId);
         if (rootNode) {
             rootNode.color = newColor;
         }
@@ -1043,7 +1184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // With multiple parents, this might overwrite colors from other parents.
         // We'll stick to simple propagation for now.
         const updateChildren = (parentId) => {
-            state.nodes.forEach(n => {
+            nodes.forEach(n => {
                 if (n.parentIds && n.parentIds.includes(parentId)) {
                     n.color = newColor;
                     updateChildren(n.id);
@@ -1057,7 +1198,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const addChildNode = (parentNode) => {
-        const { x, y } = findSmartPosition(parentNode, state.nodes);
+        const nodes = getCurrentCanvas().nodes;
+        const { x, y } = findSmartPosition(parentNode, nodes);
 
         let nodeColor = parentNode.color;
 
@@ -1071,7 +1213,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Logic for auto-coloring
         if (!parentNode.parentIds || parentNode.parentIds.length === 0) {
-            // Case 1: Parent is Root. 
+            // Case 1: Parent is Root.
             // The new node starts a new branch, so it gets a fresh color.
             // The Root node itself remains neutral.
             nodeColor = randomColor;
@@ -1084,7 +1226,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Also update any existing children of this parent to match
             // (In case it had children before but no color)
-            state.nodes.forEach(n => {
+            nodes.forEach(n => {
                 if (n.parentIds && n.parentIds.includes(parentNode.id)) {
                     n.color = nodeColor;
                 }
@@ -1101,7 +1243,7 @@ document.addEventListener('DOMContentLoaded', () => {
             color: nodeColor
         };
 
-        state.nodes.push(newNode);
+        nodes.push(newNode);
         saveState();
         render();
     };
@@ -1111,7 +1253,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const nodeHeight = 150; // Assumed height + gap
         const minDistance = 300; // Minimum distance from parent
 
-        // 1. Determine base angle. 
+        // 1. Determine base angle.
         // If parent has a parent, continue that direction to maintain flow.
         // If root, start at 0 (right).
         let baseAngle = 0;
@@ -1177,12 +1319,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. For all children that had this node as a parent, remove it from their parentIds
         // 3. If a child has NO parentIds left, delete it recursively?
 
+        const nodes = getCurrentCanvas().nodes;
         const nodesToDelete = new Set([nodeId]);
 
         // Helper to find orphans
         const findOrphans = () => {
             let changed = false;
-            state.nodes.forEach(n => {
+            nodes.forEach(n => {
                 if (nodesToDelete.has(n.id)) return; // Already marked for deletion
 
                 // Check if this node has any parents that are being deleted
@@ -1208,11 +1351,11 @@ document.addEventListener('DOMContentLoaded', () => {
         while (findOrphans()) { }
 
         // Apply deletions and clean up parentIds for survivors
-        state.nodes = state.nodes.filter(n => !nodesToDelete.has(n.id));
+        getCurrentCanvas().nodes = nodes.filter(n => !nodesToDelete.has(n.id));
 
         // For any nodes that survived, ensure their parentIds list doesn't contain
         // any IDs of nodes that were just deleted.
-        state.nodes.forEach(n => {
+        getCurrentCanvas().nodes.forEach(n => {
             if (n.parentIds) {
                 n.parentIds = n.parentIds.filter(pId => !nodesToDelete.has(pId));
             }
@@ -1308,7 +1451,8 @@ document.addEventListener('DOMContentLoaded', () => {
             dragStartY = e.touches[0].clientY;
 
             const nodeId = element.dataset.id;
-            const nodeData = state.nodes.find(n => n.id === nodeId);
+            const nodes = getCurrentCanvas().nodes;
+            const nodeData = nodes.find(n => n.id === nodeId);
             if (nodeData) {
                 initialNodeX = nodeData.x;
                 initialNodeY = nodeData.y;
@@ -1332,7 +1476,8 @@ document.addEventListener('DOMContentLoaded', () => {
             element.style.top = `${newY}px`;
 
             const nodeId = element.dataset.id;
-            const nodeData = state.nodes.find(n => n.id === nodeId);
+            const nodes = getCurrentCanvas().nodes;
+            const nodeData = nodes.find(n => n.id === nodeId);
             if (nodeData) {
                 nodeData.x = newX;
                 nodeData.y = newY;
@@ -1347,7 +1492,8 @@ document.addEventListener('DOMContentLoaded', () => {
             element.style.cursor = 'move';
 
             const nodeId = element.dataset.id;
-            const nodeToUpdate = state.nodes.find(n => n.id === nodeId);
+            const nodes = getCurrentCanvas().nodes;
+            const nodeToUpdate = nodes.find(n => n.id === nodeId);
             if (nodeToUpdate) {
                 saveState();
             }
@@ -1478,7 +1624,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Zoom Logic
-    // Zoom Logic
     const zoom = (delta, center) => {
         const oldScale = scale;
         const zoomFactor = 1.1;
@@ -1533,29 +1678,183 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Double click to create root node
     canvas.addEventListener('dblclick', (e) => {
-        // Do not create a node if the double-click was on an existing node or its children
         if (e.target.closest('.node')) {
             return;
         }
 
-        // Calculate world coordinates for the new node
-        // Screen coordinates (e.clientX, e.clientY) - Pan offset = World coordinates * Scale
-        // World = (Screen - Pan) / Scale
         const worldX = (e.clientX - pan.x) / scale;
         const worldY = (e.clientY - pan.y) / scale;
 
         const newNodeData = {
             id: `node-${Date.now()}`,
             content: 'Root Idea',
-            x: worldX - 75, // Center the node on the click point
+            heading: '',
+            description: '',
+            x: worldX - 75,
             y: worldY - 40,
-            parentId: null // Root node
+            parentIds: []
         };
 
-        state.nodes.push(newNodeData);
+        getCurrentCanvas().nodes.push(newNodeData);
         saveState();
-        createNodeElement(newNodeData);
+        render();
+    });
+
+    // Save as Image
+    const saveBtn = document.getElementById('save-button');
+    saveBtn.addEventListener('click', async () => {
+        const nodes = getCurrentCanvas().nodes;
+        if (nodes.length === 0) {
+            alert("Canvas is empty!");
+            return;
+        }
+
+        // 1. Clone the world to a hidden container to capture it
+        // We need to capture the full extent of the mind map, not just the viewport.
+        // So we'll reset the transform on the clone.
+
+        const worldClone = world.cloneNode(true);
+        worldClone.style.transform = 'none';
+        worldClone.style.position = 'absolute';
+        worldClone.style.top = '0';
+        worldClone.style.left = '0';
+        worldClone.style.width = 'auto';
+        worldClone.style.height = 'auto';
+        worldClone.style.overflow = 'visible';
+
+        // Create a temporary container
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.top = '-9999px';
+        container.style.left = '-9999px';
+        container.style.width = '5000px'; // Arbitrary large size
+        container.style.height = '5000px';
+        container.appendChild(worldClone);
+        document.body.appendChild(container);
+
+        // Calculate bounds
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        nodes.forEach(n => {
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + 250); // Approx width
+            maxY = Math.max(maxY, n.y + 150); // Approx height
+        });
+
+        // Add padding
+        const padding = 50;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        // Shift clone content so top-left is at 0,0
+        const nodesContainerClone = worldClone.querySelector('#nodes-container');
+        nodesContainerClone.style.transform = `translate(${-minX}px, ${-minY}px)`;
+
+        // Draw connections on a canvas layer
+        // html2canvas has trouble with SVGs sometimes, especially dynamic ones.
+        // We'll manually draw lines on a canvas and overlay it.
+        const canvasLayer = document.createElement('canvas');
+        canvasLayer.width = width;
+        canvasLayer.height = height;
+        canvasLayer.style.position = 'absolute';
+        canvasLayer.style.left = '0';
+        canvasLayer.style.top = '0';
+        canvasLayer.style.zIndex = '-1'; // Behind nodes
+        worldClone.insertBefore(canvasLayer, nodesContainerClone);
+
+        const ctx = canvasLayer.getContext('2d');
+
+        // Map node positions from the clone to get exact centers/edges if needed
+        // But using state data is easier and robust enough.
+        // We need to adjust state coords by (-minX, -minY)
+
+        const nodeDims = new Map();
+        // We can try to measure the cloned nodes for better accuracy
+        worldClone.querySelectorAll('.node').forEach(n => {
+            const id = n.dataset.id;
+            nodeDims.set(id, { w: n.offsetWidth, h: n.offsetHeight });
+        });
+
+        nodes.forEach(node => {
+            if (node.parentIds && node.parentIds.length > 0) {
+                node.parentIds.forEach(parentId => {
+                    const parent = nodes.find(n => n.id === parentId);
+                    if (parent) {
+                        const pDim = nodeDims.get(parent.id) || { w: 150, h: 80 };
+                        const cDim = nodeDims.get(node.id) || { w: 150, h: 80 };
+
+                        const startX = (parent.x - minX) + pDim.w; // Right side
+                        const startY = (parent.y - minY) + pDim.h / 2;
+                        const endX = (node.x - minX); // Left side
+                        const endY = (node.y - minY) + cDim.h / 2;
+
+                        const deltaX = endX - startX;
+                        const c1x = startX + deltaX * 0.4;
+                        const c1y = startY;
+                        const c2x = endX - deltaX * 0.4;
+                        const c2y = endY;
+
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, endX, endY);
+                        ctx.strokeStyle = parent.color || '#555';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    }
+                });
+            }
+        });
+
+        // Hide original SVGs in clone to avoid duplicates/artifacts
+        const svgClone = worldClone.querySelector('#connections');
+        if (svgClone) svgClone.style.display = 'none';
+        const groupsClone = worldClone.querySelector('#groups');
+        if (groupsClone) groupsClone.style.display = 'none';
+
+
+        try {
+            const canvas = await html2canvas(worldClone, {
+                backgroundColor: '#1a1a1a',
+                width: width,
+                height: height,
+                scale: 2, // High res
+                logging: false,
+                useCORS: true
+            });
+
+            const link = document.createElement('a');
+            link.download = `orbit-mind-map-${Date.now()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        } catch (err) {
+            console.error("Export failed:", err);
+            alert("Failed to export image.");
+        } finally {
+            document.body.removeChild(container);
+        }
+    });
+
+    // Clear Canvas
+    const clearBtn = document.getElementById('clear-button');
+    clearBtn.addEventListener('click', () => {
+        const currentCanvas = getCurrentCanvas();
+        if (currentCanvas.nodes.length === 0) return;
+
+        if (confirm("Are you sure you want to clear the entire canvas? This action cannot be undone.")) {
+            currentCanvas.nodes = [];
+            saveState();
+            render();
+            pan = { x: 0, y: 0 };
+            scale = 1;
+            updateTransform();
+        }
     });
 
     syncButton.addEventListener('click', async () => {
@@ -1602,238 +1901,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Save as Image
-    const saveBtn = document.getElementById('save-button');
-    saveBtn.addEventListener('click', async () => {
-        if (state.nodes.length === 0) {
-            alert("Nothing to save!");
-            return;
-        }
 
-        // Calculate bounding box
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        const nodeElements = document.querySelectorAll('.node');
-
-        // Map to store dimensions for line drawing
-        const nodeDims = new Map();
-
-        nodeElements.forEach(el => {
-            const id = el.dataset.id;
-            const x = parseFloat(el.style.left);
-            const y = parseFloat(el.style.top);
-            const w = el.offsetWidth;
-            const h = el.offsetHeight;
-
-            nodeDims.set(id, { w, h });
-
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x + w > maxX) maxX = x + w;
-            if (y + h > maxY) maxY = y + h;
-        });
-
-        const padding = 50;
-        minX -= padding;
-        minY -= padding;
-        maxX += padding;
-        maxY += padding;
-
-        const width = maxX - minX;
-        const height = maxY - minY;
-
-        // Create container
-        const container = document.createElement('div');
-        container.style.position = 'fixed';
-        container.style.left = '-9999px';
-        container.style.top = '0';
-        container.style.width = `${width}px`;
-        container.style.height = `${height}px`;
-        container.style.backgroundColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
-
-        // Clone world
-        const worldClone = world.cloneNode(true);
-        worldClone.style.transform = `translate(${-minX}px, ${-minY}px) scale(1)`;
-        worldClone.style.transformOrigin = '0 0';
-
-        // Remove existing SVGs from clone (we will redraw them)
-        const oldConnections = worldClone.querySelector('#connections');
-        if (oldConnections) oldConnections.remove();
-        const oldGroups = worldClone.querySelector('#groups');
-        if (oldGroups) oldGroups.remove();
-
-        // Create a canvas for connections
-        const canvasLayer = document.createElement('canvas');
-        canvasLayer.width = width;
-        canvasLayer.height = height;
-        canvasLayer.style.position = 'absolute';
-        canvasLayer.style.left = `${minX}px`;
-        canvasLayer.style.top = `${minY}px`;
-        canvasLayer.style.zIndex = '0'; // Behind nodes
-
-        const ctx = canvasLayer.getContext('2d');
-
-        // Translate context so we can draw in world coordinates
-        ctx.translate(-minX, -minY);
-
-        // Draw Connections
-        state.nodes.forEach(node => {
-            if (node.parentIds && node.parentIds.length > 0) {
-                node.parentIds.forEach(parentId => {
-                    const parent = state.nodes.find(n => n.id === parentId);
-                    if (parent) {
-                        const pDim = nodeDims.get(parent.id) || { w: 100, h: 50 };
-                        const cDim = nodeDims.get(node.id) || { w: 100, h: 50 };
-
-                        const startX = parent.x + pDim.w / 2;
-                        const startY = parent.y + pDim.h / 2;
-                        const endX = node.x + cDim.w / 2;
-                        const endY = node.y + cDim.h / 2;
-
-                        const deltaX = endX - startX;
-                        const c1x = startX + deltaX * 0.4;
-                        const c1y = startY;
-                        const c2x = endX - deltaX * 0.4;
-                        const c2y = endY;
-
-                        ctx.beginPath();
-                        ctx.moveTo(startX, startY);
-                        ctx.bezierCurveTo(c1x, c1y, c2x, c2y, endX, endY);
-                        ctx.strokeStyle = parent.color || '#555';
-                        ctx.lineWidth = 2;
-                        ctx.stroke();
-                    }
-                });
-            }
-        });
-
-        // Insert canvas into worldClone before nodes
-        const nodesContainerClone = worldClone.querySelector('#nodes-container');
-        worldClone.insertBefore(canvasLayer, nodesContainerClone);
-
-        container.appendChild(worldClone);
-        document.body.appendChild(container);
-
-        try {
-            const canvas = await html2canvas(container, {
-                backgroundColor: container.style.backgroundColor,
-                scale: 2,
-                logging: false
-            });
-
-            const link = document.createElement('a');
-            link.download = `orbit-mindmap-${Date.now()}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        } catch (err) {
-            console.error("Export failed:", err);
-            alert("Failed to export image.");
-        } finally {
-            document.body.removeChild(container);
-        }
-    });
-
-    // Clear Canvas
-    const clearBtn = document.getElementById('clear-button');
-    clearBtn.addEventListener('click', () => {
-        if (state.nodes.length === 0) return;
-
-        if (confirm("Are you sure you want to clear the entire canvas? This action cannot be undone.")) {
-            state.nodes = [];
-            saveState();
-            render();
-            // Reset pan and zoom? Optional, but maybe nice.
-            pan = { x: 0, y: 0 };
-            scale = 1;
-            updateTransform();
-        }
-    });
-
-    // Auto Reposition Logic
-    const autoLayout = () => {
-        if (state.nodes.length === 0) return;
-
-        const roots = state.nodes.filter(n => !n.parentIds || n.parentIds.length === 0);
-        // If no clear roots (cycles), pick the first node
-        if (roots.length === 0) {
-            roots.push(state.nodes[0]);
-        }
-
-        const GAP_X = 50;
-        const GAP_Y = 150;
-        const NODE_WIDTH = 150;
-
-        // Helper to get children
-        const getChildren = (parentId) => state.nodes.filter(n => n.parentIds && n.parentIds.includes(parentId));
-
-        // Recursive layout function
-        // Returns the bounding box {minX, maxX} of the subtree
-        const layoutTree = (nodeId, x, y, visited = new Set()) => {
-            if (visited.has(nodeId)) {
-                return { minX: x, maxX: x + NODE_WIDTH };
-            }
-            visited.add(nodeId);
-
-            const children = getChildren(nodeId);
-            const node = state.nodes.find(n => n.id === nodeId);
-
-            if (children.length === 0) {
-                if (node) {
-                    node.x = x;
-                    node.y = y;
-                }
-                return { minX: x, maxX: x + NODE_WIDTH };
-            }
-
-            let currentChildX = x;
-            let minChildX = Infinity;
-            let maxChildX = -Infinity;
-
-            children.forEach(child => {
-                // We place children recursively
-                // Note: We pass currentChildX as the start X for the child's subtree
-                const bounds = layoutTree(child.id, currentChildX, y + GAP_Y, visited);
-
-                minChildX = Math.min(minChildX, bounds.minX);
-                maxChildX = Math.max(maxChildX, bounds.maxX);
-
-                // The next child starts after this child's subtree + gap
-                currentChildX = bounds.maxX + GAP_X;
-            });
-
-            // Center parent over children
-            if (node) {
-                const childrenCenter = (minChildX + maxChildX) / 2;
-                node.x = childrenCenter - NODE_WIDTH / 2;
-                node.y = y;
-            }
-
-            // The bounding box of THIS tree includes the parent and the children
-            // Parent is at node.x to node.x + NODE_WIDTH
-            // Children are from minChildX to maxChildX
-            const parentLeft = node ? node.x : x;
-            const parentRight = node ? node.x + NODE_WIDTH : x + NODE_WIDTH;
-
-            return {
-                minX: Math.min(parentLeft, minChildX),
-                maxX: Math.max(parentRight, maxChildX)
-            };
-        };
-
-        let startX = 0;
-        const globalVisited = new Set();
-
-        roots.forEach(root => {
-            const bounds = layoutTree(root.id, startX, 100, globalVisited);
-            startX = bounds.maxX + GAP_X + 100; // Gap between separate trees
-        });
-
-        saveState();
-        render();
-
-        // Reset view to center
-        pan = { x: window.innerWidth / 2 - startX / 2, y: 100 };
-        updateTransform();
-    };
 
     document.getElementById('reposition-button').addEventListener('click', () => {
         if (confirm("Auto-reposition all nodes? This will overwrite your custom layout.")) {

@@ -338,3 +338,78 @@ html {
     outline: none;
     border-color: #00ff88;
 }
+
+/* Canvas Header */
+#canvas-header {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    z-index: 100;
+    background: rgba(26, 26, 26, 0.8);
+    backdrop-filter: blur(10px);
+    padding: 10px 20px;
+    border-radius: 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    border: 1px solid #333;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+#canvas-title {
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+    min-width: 100px;
+    text-align: center;
+    outline: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+}
+
+#canvas-title:focus {
+    border-color: var(--accent-color);
+}
+
+.nav-btn {
+    background: transparent;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background-color 0.2s;
+}
+
+.nav-btn:hover {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Focus Mode */
+body.focus-mode #canvas-header {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(-20px);
+}
+
+body.focus-mode #controls-ui {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(20px);
+}
+
+/* Add Focus Button to Controls */
+#focus-button {
+    background-color: #333;
+}
+
+#focus-button:hover {
+    background-color: #444;
+}
