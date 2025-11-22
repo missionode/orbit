@@ -113,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Ensure all nodes have IDs (Migration safety)
             state.canvases.forEach(canvas => {
+                if (!canvas.nodes) canvas.nodes = [];
                 canvas.nodes.forEach(n => {
                     if (!n.id) n.id = `node-${Date.now()}-${Math.random()}`;
                     if (!n.parentIds) {
@@ -498,7 +499,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     const detachNode = (parentId, childId) => {
-        const nodes = getCurrentCanvas().nodes;
+        const canvas = getCurrentCanvas();
+        if (!canvas || !canvas.nodes) {
+            console.error("detachNode: Canvas or nodes missing", canvas);
+            return;
+        }
+        const nodes = canvas.nodes;
         const child = nodes.find(n => n.id === childId);
         if (child && child.parentIds) {
             child.parentIds = child.parentIds.filter(id => id !== parentId);
