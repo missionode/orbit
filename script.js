@@ -1898,6 +1898,93 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
+    // Auto Layout Function
+    const autoLayout = () => {
+        const nodes = getCurrentCanvas().nodes;
+        if (nodes.length === 0) return;
+
+        // Identify roots (nodes with no parents)
+        const roots = nodes.filter(n => !n.parentIds || n.parentIds.length === 0);
+
+        // If no true roots (cycles), pick the first node as root
+        const layoutRoots = roots.length > 0 ? roots : [nodes[0]];
+
+        const visited = new Set();
+        const levelHeight = 200;
+        const siblingGap = 220;
+
+        const layoutNode = (nodeId, level, startX) => {
+            if (visited.has(nodeId)) return startX;
+            visited.add(nodeId);
+
+            const node = nodes.find(n => n.id === nodeId);
+            // Find children
+            const children = nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId));
+
+            let currentX = startX;
+
+            if (children.length === 0) {
+                // Leaf node
+                node.x = currentX;
+                node.y = level * levelHeight;
+                return currentX + siblingGap;
+            } else {
+                // Parent node
+                let childX = startX;
+                children.forEach(child => {
+                    childX = layoutNode(child.id, level + 1, childX);
+                });
+
+                // Center parent above children
+                const firstChild = nodes.find(n => n.id === children[0].id);
+                const lastChild = nodes.find(n => n.id === children[children.length - 1].id);
+
+                node.x = (firstChild.x + lastChild.x) / 2;
+                node.y = level * levelHeight;
+
+                return childX; // Return next available X
+            }
+        };
+
+        let nextRootX = 0;
+        layoutRoots.forEach(root => {
+            nextRootX = layoutNode(root.id, 0, nextRootX) + 100; // Add gap between trees
+        });
+
+        // Center the whole layout
+        // Calculate bounds
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        nodes.forEach(n => {
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x);
+            maxY = Math.max(maxY, n.y);
+        });
+
+        const layoutWidth = maxX - minX;
+        const layoutHeight = maxY - minY;
+
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+
+        // Shift all nodes to center
+        const shiftX = centerX - (minX + layoutWidth / 2);
+        const shiftY = centerY - (minY + layoutHeight / 2);
+
+        nodes.forEach(n => {
+            n.x += shiftX;
+            n.y += shiftY;
+        });
+
+        saveState();
+        render();
+
+        // Reset view to center
+        pan = { x: 0, y: 0 };
+        scale = 1;
+        updateTransform();
+    };
+
     document.getElementById('reposition-button').addEventListener('click', () => {
         if (confirm("Auto-reposition all nodes? This will overwrite your custom layout.")) {
             autoLayout();
