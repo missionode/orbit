@@ -83,6 +83,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Auto-save logic
+    let saveTimeout;
+    const saveToFile = async () => {
+        if (!fileHandle) return;
+        try {
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(state, null, 2));
+            await writable.close();
+            console.log("Auto-saved to file.");
+        } catch (err) {
+            console.error("Failed to auto-save to file:", err);
+        }
+    };
+
+    const debouncedSaveToFile = () => {
+        if (!fileHandle) return;
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(saveToFile, 1000);
+    };
+
     const saveState = (skipHistory = false) => {
         const currentCanvas = getCurrentCanvas();
         currentCanvas.lastModified = new Date().toISOString();
@@ -95,6 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!skipHistory) {
             pushHistory();
         }
+        debouncedSaveToFile();
     };
 
     const loadState = () => {
@@ -1976,13 +1997,13 @@ document.addEventListener('DOMContentLoaded', () => {
             n.y += shiftY;
         });
 
-        saveState();
-        render();
-
         // Reset view to center
         pan = { x: 0, y: 0 };
         scale = 1;
         updateTransform();
+
+        saveState();
+        render();
     };
 
     document.getElementById('reposition-button').addEventListener('click', () => {
