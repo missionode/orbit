@@ -2419,23 +2419,31 @@ document.addEventListener('DOMContentLoaded', () => {
             // Re-calculating with width:
             minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
             nodes.forEach(n => {
-                minX = Math.min(minX, n.x);
-                minY = Math.min(minY, n.y);
-                maxX = Math.max(maxX, n.x + 360);
-                // We can't know exact height without DOM, but let's assume at least some height.
-                // Centering based on top-lefts + width is usually good enough.
-                maxY = Math.max(maxY, n.y + 100);
+                const nx = Number(n.x);
+                const ny = Number(n.y);
+                if (isFinite(nx) && isFinite(ny)) {
+                    minX = Math.min(minX, nx);
+                    minY = Math.min(minY, ny);
+                    maxX = Math.max(maxX, nx + 360);
+                    maxY = Math.max(maxY, ny + 100);
+                }
             });
 
-            const contentCenterX = (minX + maxX) / 2;
-            const contentCenterY = (minY + maxY) / 2;
+            // Fallback if no valid nodes found
+            if (minX === Infinity) {
+                pan = { x: 0, y: 0 };
+            } else {
 
-            // Center of screen
-            const screenCenterX = window.innerWidth / 2;
-            const screenCenterY = window.innerHeight / 2;
+                const contentCenterX = (minX + maxX) / 2;
+                const contentCenterY = (minY + maxY) / 2;
 
-            pan.x = screenCenterX - contentCenterX * scale;
-            pan.y = screenCenterY - contentCenterY * scale;
+                // Center of screen
+                const screenCenterX = window.innerWidth / 2;
+                const screenCenterY = window.innerHeight / 2;
+
+                pan.x = screenCenterX - contentCenterX * scale;
+                pan.y = screenCenterY - contentCenterY * scale;
+            }
         }
 
         updateTransform();
