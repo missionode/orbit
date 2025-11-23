@@ -2182,6 +2182,54 @@ document.addEventListener('DOMContentLoaded', () => {
         render();
     };
 
+    document.getElementById('zoom-100-button').addEventListener('click', () => {
+        const nodes = getCurrentCanvas().nodes;
+        scale = 1;
+
+        if (nodes.length === 0) {
+            pan = { x: 0, y: 0 };
+        } else {
+            // Calculate bounding box of all nodes
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            nodes.forEach(n => {
+                minX = Math.min(minX, n.x);
+                minY = Math.min(minY, n.y);
+                maxX = Math.max(maxX, n.x + 360); // Node width
+                maxY = Math.max(maxY, n.y + n.height || n.y + 100); // Use approximate height if not stored, or just min/max points
+            });
+
+            // Better approximation for height if not stored: just use y
+            // Actually, let's just use the min/max x/y found.
+            // Since we don't store height in state explicitly (it's dynamic), we can estimate or just center on the top-lefts average.
+            // But to be safe, let's just use the min/max coordinates we have.
+            // A node is 360px wide. Height varies.
+
+            // Re-calculating with width:
+            minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity;
+            nodes.forEach(n => {
+                minX = Math.min(minX, n.x);
+                minY = Math.min(minY, n.y);
+                maxX = Math.max(maxX, n.x + 360);
+                // We can't know exact height without DOM, but let's assume at least some height.
+                // Centering based on top-lefts + width is usually good enough.
+                maxY = Math.max(maxY, n.y + 100);
+            });
+
+            const contentCenterX = (minX + maxX) / 2;
+            const contentCenterY = (minY + maxY) / 2;
+
+            // Center of screen
+            const screenCenterX = window.innerWidth / 2;
+            const screenCenterY = window.innerHeight / 2;
+
+            pan.x = screenCenterX - contentCenterX * scale;
+            pan.y = screenCenterY - contentCenterY * scale;
+        }
+
+        updateTransform();
+        saveState();
+    });
+
     const repositionBtn = document.getElementById('reposition-button');
 
     repositionBtn.addEventListener('click', () => {
