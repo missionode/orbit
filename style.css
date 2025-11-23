@@ -207,6 +207,21 @@ html {
     color: #00ff88 !important;
 }
 
+.resolve-node {
+    color: #aaa;
+    transition: color 0.2s, background-color 0.2s;
+}
+
+.resolve-node.resolved {
+    color: #00ff88;
+    background-color: rgba(0, 255, 136, 0.1);
+}
+
+.resolve-node:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
 
 #controls-ui {
     position: fixed;

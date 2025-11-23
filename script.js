@@ -793,6 +793,45 @@ document.addEventListener('DOMContentLoaded', () => {
         renderConnections();
     };
 
+    // Cleanup Node Logic
+    const cleanupNode = (nodeId) => {
+        const nodes = getCurrentCanvas().nodes;
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node) return;
+
+        const parentIds = nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId)).map(n => n.id); // Wait, these are children?
+        // No, parentIds are stored on the child.
+        // So nodes that have `nodeId` in their `parentIds` are CHILDREN of `node`.
+        const children = nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId));
+
+        // Parents of `node` are in `node.parentIds`.
+        const parents = nodes.filter(n => node.parentIds && node.parentIds.includes(n.id));
+
+        // 1. Reconnect Parents to Children
+        children.forEach(child => {
+            // Remove the removed node from child's parents
+            child.parentIds = child.parentIds.filter(id => id !== nodeId);
+
+            // Add all grandparents (parents of removed node) to child's parents
+            if (parents.length > 0) {
+                parents.forEach(p => {
+                    if (!child.parentIds.includes(p.id)) {
+                        child.parentIds.push(p.id);
+                    }
+                });
+            }
+        });
+
+        // 2. Remove Node
+        const index = nodes.findIndex(n => n.id === nodeId);
+        if (index !== -1) {
+            nodes.splice(index, 1);
+        }
+
+        // 3. Auto-Reposition
+        autoLayout();
+    };
+
     const createNodeElement = (nodeData) => {
         const node = document.createElement('div');
         node.classList.add('node');
@@ -912,6 +951,35 @@ document.addEventListener('DOMContentLoaded', () => {
         addChildBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             addChildNode(nodeData);
+        });
+
+        // Resolve Button
+        const resolveBtn = document.createElement('button');
+        resolveBtn.classList.add('control-btn', 'resolve-node');
+        if (nodeData.resolved) {
+            resolveBtn.classList.add('resolved');
+        }
+        resolveBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        resolveBtn.title = 'Double-click to Mark Resolved / Click to Cleanup';
+
+        resolveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (nodeData.resolved) {
+                if (confirm("Do you really want to clean up the resolved task? This will remove it and reconnect its neighbors.")) {
+                    cleanupNode(nodeData.id);
+                }
+            }
+        });
+
+        resolveBtn.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            nodeData.resolved = !nodeData.resolved;
+            if (nodeData.resolved) {
+                resolveBtn.classList.add('resolved');
+            } else {
+                resolveBtn.classList.remove('resolved');
+            }
+            saveState();
         });
 
         // Delete Button
@@ -1093,6 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         controls.appendChild(colorWrapper);
         controls.appendChild(linkBtn);
         controls.appendChild(addChildBtn);
+        controls.appendChild(resolveBtn);
         controls.appendChild(markBtn); // Add mark button
         controls.appendChild(deleteButton);
 
@@ -1450,9 +1519,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const findSmartPosition = (parent, allNodes) => {
-        const nodeWidth = 400; // Assumed width (360) + gap
+        const nodeWidth = 500; // Assumed width (360) + generous gap
         const nodeHeight = 150; // Assumed height + gap
-        const minDistance = 450; // Minimum distance from parent
+        const minDistance = 550; // Minimum distance from parent
 
         // 1. Determine base angle.
         // If parent has a parent, continue that direction to maintain flow.
@@ -2153,7 +2222,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const visited = new Set();
         const levelHeight = 200;
-        const siblingGap = 400; // Increased for 360px wide nodes
+        const siblingGap = 500; // Increased for generous spacing (360px node + 140px gap)
 
         const layoutNode = (nodeId, level, startX) => {
             if (visited.has(nodeId)) return startX;
