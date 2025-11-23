@@ -221,7 +221,8 @@ html {
 #sync-button,
 #save-button,
 #clear-button,
-#reposition-button {
+#reposition-button,
+#focus-button {
     background-color: var(--accent-color);
     color: white;
     border: none;
@@ -239,7 +240,8 @@ html {
 #sync-button:hover,
 #save-button:hover,
 #clear-button:hover,
-#reposition-button:hover {
+#reposition-button:hover,
+#focus-button:hover {
     background-color: var(--accent-color-hover);
     transform: scale(1.05);
 }
@@ -399,17 +401,15 @@ body.focus-mode #canvas-header {
     transform: translateX(-50%) translateY(-20px);
 }
 
-body.focus-mode #controls-ui {
+body.focus-mode #controls-ui>button:not(#focus-button) {
     opacity: 0;
     pointer-events: none;
     transform: translateY(20px);
 }
 
-/* Add Focus Button to Controls */
-#focus-button {
-    background-color: #333;
-}
-
-#focus-button:hover {
-    background-color: #444;
+/* Focus button specific style when active */
+body.focus-mode #focus-button {
+    background-color: #ff5555;
+    /* Red to indicate 'exit' or active state */
+    box-shadow: 0 0 15px rgba(255, 85, 85, 0.5);
 }

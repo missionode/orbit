@@ -94,6 +94,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Auto-saved to file.");
         } catch (err) {
             console.error("Failed to auto-save to file:", err);
+            fileHandle = null;
+            alert("Connection to db.json lost! Your changes are saved locally, but file sync has stopped.\n\nPlease click the Sync button to reconnect.");
         }
     };
 
@@ -799,6 +801,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         heading.addEventListener('focus', () => {
             initialHeading = heading.innerText;
+            // Auto-clear placeholder text
+            if (heading.innerText === 'Root Idea' || heading.innerText === 'New Idea') {
+                heading.innerText = '';
+            }
         });
 
         heading.addEventListener('input', () => {
@@ -1667,18 +1673,16 @@ document.addEventListener('DOMContentLoaded', () => {
         scale = Math.min(Math.max(0.1, scale), 5);
 
         // Zoom towards center
-        // P_world = (P_screen - Pan) / Scale
-        // We want P_world to stay at P_screen
-        // NewPan = P_screen - P_world * NewScale
+        // We want the point under the mouse (center.x, center.y) to remain fixed relative to the screen.
+        // World coordinates of the mouse before zoom:
+        const worldX = (center.x - pan.x) / oldScale;
+        const worldY = (center.y - pan.y) / oldScale;
 
-        const mouseX = center.x;
-        const mouseY = center.y;
-
-        const worldX = (mouseX - pan.x) / oldScale;
-        const worldY = (mouseY - pan.y) / oldScale;
-
-        pan.x = mouseX - worldX * scale;
-        pan.y = mouseY - worldY * scale;
+        // New pan position:
+        // center.x = pan.x + worldX * scale
+        // pan.x = center.x - worldX * scale
+        pan.x = center.x - worldX * scale;
+        pan.y = center.y - worldY * scale;
 
         updateTransform();
     };
@@ -1889,6 +1893,22 @@ document.addEventListener('DOMContentLoaded', () => {
     syncButton.addEventListener('click', async () => {
         try {
             if (!fileHandle) {
+                // Prompt for sample download
+                if (confirm("Do you want to download a sample db.json file first?")) {
+                    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'db.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    // Small delay to ensure download starts before picker opens (though picker is blocking)
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
                 [fileHandle] = await window.showOpenFilePicker({
                     types: [{
                         description: 'JSON Files',
@@ -1924,6 +1944,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Sync failed:', error);
             if (error.name === 'AbortError') {
                 fileHandle = null;
+                alert("Database connection cancelled. You are working in offline mode.");
             } else {
                 alert(`An error occurred during sync: ${error.message}`);
             }
