@@ -216,6 +216,7 @@ html {
     flex-direction: column;
     gap: 15px;
     z-index: 100;
+    align-items: flex-end;
 }
 
 #sync-button,
@@ -263,7 +264,10 @@ html {
     }
 
     #sync-button,
-    #save-button {
+    #save-button,
+    #clear-button,
+    #reposition-button,
+    #focus-button {
         width: 50px;
         height: 50px;
     }
