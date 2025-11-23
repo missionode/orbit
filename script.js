@@ -828,8 +828,28 @@ document.addEventListener('DOMContentLoaded', () => {
             nodes.splice(index, 1);
         }
 
-        // 3. Auto-Reposition
-        autoLayout();
+        // 3. Auto-Reposition without resetting view
+        autoLayout(false);
+
+        // 4. Center view on affected nodes (parents + children)
+        const affectedNodes = [...parents, ...children];
+        if (affectedNodes.length > 0) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            affectedNodes.forEach(n => {
+                minX = Math.min(minX, n.x);
+                minY = Math.min(minY, n.y);
+                maxX = Math.max(maxX, n.x + 360);
+                maxY = Math.max(maxY, n.y + 150);
+            });
+
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+
+            // Center on screen
+            pan.x = window.innerWidth / 2 - centerX * scale;
+            pan.y = window.innerHeight / 2 - centerY * scale;
+            updateTransform();
+        }
     };
 
     const createNodeElement = (nodeData) => {
@@ -1296,6 +1316,18 @@ document.addEventListener('DOMContentLoaded', () => {
         repositionSharedNode(child);
 
         linkingFromId = null;
+
+        // Center view on the link
+        const parent = nodes.find(n => n.id === parentId);
+        if (parent && child) {
+            const midX = (parent.x + parent.offsetWidth / 2 + child.x + child.offsetWidth / 2) / 2;
+            const midY = (parent.y + parent.offsetHeight / 2 + child.y + child.offsetHeight / 2) / 2;
+
+            pan.x = window.innerWidth / 2 - midX * scale;
+            pan.y = window.innerHeight / 2 - midY * scale;
+            updateTransform();
+        }
+
         saveState();
         render();
     };
@@ -1585,17 +1617,31 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const deleteNode = (nodeId) => {
-        // 1. Remove this node from state
-        // 2. For all children that had this node as a parent, remove it from their parentIds
-        // 3. If a child has NO parentIds left, delete it recursively?
+        const currentNodes = getCurrentCanvas().nodes;
+        const nodeToDelete = currentNodes.find(n => n.id === nodeId);
+        if (!nodeToDelete) return;
 
-        const nodes = getCurrentCanvas().nodes;
+        // Store IDs of related nodes before deletion for centering later
+        const relatedNodeIds = new Set();
+        relatedNodeIds.add(nodeId); // The node itself
+
+        // Add parents
+        if (nodeToDelete.parentIds) {
+            nodeToDelete.parentIds.forEach(pId => relatedNodeIds.add(pId));
+        }
+        // Add children (nodes that have this node as a parent)
+        currentNodes.forEach(n => {
+            if (n.parentIds && n.parentIds.includes(nodeId)) {
+                relatedNodeIds.add(n.id);
+            }
+        });
+
         const nodesToDelete = new Set([nodeId]);
 
         // Helper to find orphans
         const findOrphans = () => {
             let changed = false;
-            nodes.forEach(n => {
+            currentNodes.forEach(n => {
                 if (nodesToDelete.has(n.id)) return; // Already marked for deletion
 
                 // Check if this node has any parents that are being deleted
@@ -1621,7 +1667,7 @@ document.addEventListener('DOMContentLoaded', () => {
         while (findOrphans()) { }
 
         // Apply deletions and clean up parentIds for survivors
-        getCurrentCanvas().nodes = nodes.filter(n => !nodesToDelete.has(n.id));
+        getCurrentCanvas().nodes = currentNodes.filter(n => !nodesToDelete.has(n.id));
 
         // For any nodes that survived, ensure their parentIds list doesn't contain
         // any IDs of nodes that were just deleted.
@@ -1632,7 +1678,46 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         saveState();
-        render();
+        render(); // Render to update DOM for autoLayout to work with correct dimensions
+
+        // Auto-layout the remaining nodes, but don't reset view yet
+        autoLayout(false);
+
+        // After autoLayout, find the bounding box of the *remaining* related nodes
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let foundAnyRelated = false;
+        const nodesAfterLayout = getCurrentCanvas().nodes;
+
+        relatedNodeIds.forEach(id => {
+            // Only consider nodes that still exist after deletion
+            const node = nodesAfterLayout.find(n => n.id === id);
+            if (node) {
+                minX = Math.min(minX, node.x);
+                minY = Math.min(minY, node.y);
+                maxX = Math.max(maxX, node.x + 360); // Approx node width
+                maxY = Math.max(maxY, node.y + 100); // Approx node height
+                foundAnyRelated = true;
+            }
+        });
+
+        if (foundAnyRelated) {
+            const contentCenterX = (minX + maxX) / 2;
+            const contentCenterY = (minY + maxY) / 2;
+
+            const screenCenterX = window.innerWidth / 2;
+            const screenCenterY = window.innerHeight / 2;
+
+            pan.x = screenCenterX - contentCenterX * scale;
+            pan.y = screenCenterY - contentCenterY * scale;
+            updateTransform();
+        } else {
+            // If no related nodes left (e.g., deleted the only node), reset view
+            pan = { x: 0, y: 0 };
+            scale = 1;
+            updateTransform();
+        }
+
+        selectedNodeId = null; // Clear selection after delete
     };
 
     const makeDraggable = (element) => {
@@ -1688,7 +1773,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Re-draw connections efficiently
-            // We could optimize to only redraw lines connected to this node, 
+            // We could optimize to only redraw lines connected to this node,
             // but for < 100 nodes, full redraw is fine.
             renderConnections();
         };
@@ -2134,7 +2219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     syncButton.addEventListener('click', async () => {
         try {
             if (!fileHandle) {
-                // User wants to start syncing. 
+                // User wants to start syncing.
                 // We use showSaveFilePicker to let them create/select a file to sync TO.
                 // This replaces the "Download Sample" + "Open File" flow.
                 try {
@@ -2210,7 +2295,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Auto Layout Function
-    const autoLayout = () => {
+    const autoLayout = (resetView = true) => {
         const nodes = getCurrentCanvas().nodes;
         if (nodes.length === 0) return;
 
@@ -2287,10 +2372,12 @@ document.addEventListener('DOMContentLoaded', () => {
             n.y += shiftY;
         });
 
-        // Reset view to center
-        pan = { x: 0, y: 0 };
-        scale = 1;
-        updateTransform();
+        // Reset view to center only if requested
+        if (resetView) {
+            pan = { x: 0, y: 0 };
+            scale = 1;
+            updateTransform();
+        }
 
         saveState();
         render();
