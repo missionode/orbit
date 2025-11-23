@@ -224,7 +224,8 @@ html {
 #clear-button,
 #zoom-100-button,
 #reposition-button,
-#focus-button {
+#focus-button,
+#fullscreen-button {
     background-color: var(--accent-color);
     color: white;
     border: none;
@@ -244,7 +245,8 @@ html {
 #clear-button:hover,
 #zoom-100-button:hover,
 #reposition-button:hover,
-#focus-button:hover {
+#focus-button:hover,
+#fullscreen-button:hover {
     background-color: var(--accent-color-hover);
     transform: scale(1.05);
 }
@@ -256,21 +258,24 @@ body.focus-mode #canvas-header {
     transform: translateY(-100%);
 }
 
-body.focus-mode #controls-ui>button:not(#focus-button) {
+body.focus-mode #controls-ui>button:not(#focus-button):not(#fullscreen-button) {
     display: none;
 }
 
-body.focus-mode #focus-button {
+body.focus-mode #focus-button,
+body.focus-mode #fullscreen-button {
+    display: flex !important;
     background-color: transparent;
-    color: #555;
+    color: #888;
     box-shadow: none;
-    transform: scale(0.8);
-    opacity: 0.3;
-    /* Very subtle */
-    border: 1px solid #333;
+    transform: scale(0.9);
+    opacity: 0.6;
+    /* More visible */
+    border: 1px solid #555;
 }
 
-body.focus-mode #focus-button:hover {
+body.focus-mode #focus-button:hover,
+body.focus-mode #fullscreen-button:hover {
     opacity: 1;
     color: var(--accent-color);
     background-color: rgba(0, 0, 0, 0.5);
@@ -497,7 +502,8 @@ body.focus-mode #focus-button {
     #clear-button,
     #zoom-100-button,
     #reposition-button,
-    #focus-button {
+    #focus-button,
+    #fullscreen-button {
         width: 50px;
         height: 50px;
     }

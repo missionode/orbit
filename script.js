@@ -567,6 +567,36 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.toggle('focus-mode');
     });
 
+    // Fullscreen Logic
+    const fullscreenBtn = document.getElementById('fullscreen-button');
+    const enterIcon = document.getElementById('fullscreen-icon-enter');
+    const exitIcon = document.getElementById('fullscreen-icon-exit');
+
+    const toggleFullscreen = () => {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(err => {
+                console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+            });
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        }
+    };
+
+    const updateFullscreenIcon = () => {
+        if (document.fullscreenElement) {
+            enterIcon.style.display = 'none';
+            exitIcon.style.display = 'block';
+        } else {
+            enterIcon.style.display = 'block';
+            exitIcon.style.display = 'none';
+        }
+    };
+
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', updateFullscreenIcon);
+
     // Deselect node when clicking on the canvas background
     canvas.addEventListener('click', (e) => {
         if (e.target === canvas || e.target === world || e.target === nodesContainer || e.target === connectionsSvg || e.target === document.getElementById('groups')) {
