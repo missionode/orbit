@@ -249,53 +249,36 @@ html {
     transform: scale(1.05);
 }
 
-@media (max-width: 768px) {
-    .node {
-        min-width: 120px;
-        min-height: 70px;
-    }
-
-    .node-content {
-        font-size: 16px;
-    }
-
-    #controls-ui {
-        bottom: 15px;
-        right: 15px;
-        gap: 10px;
-    }
-
-    #sync-button,
-    #save-button,
-    #clear-button,
-    #zoom-100-button,
-    #reposition-button,
-    #focus-button {
-        width: 50px;
-        height: 50px;
-    }
-
-    /* Left align header on mobile */
-    #canvas-header {
-        top: 0;
-        left: 0;
-        width: 100%;
-        transform: none;
-        padding: 10px 15px;
-        gap: 10px;
-        border-radius: 0;
-        border: none;
-        border-bottom: 1px solid #333;
-        box-sizing: border-box;
-        justify-content: flex-start;
-    }
-
-    #canvas-title {
-        text-align: left;
-        min-width: auto;
-        font-size: 16px;
-    }
+/* Focus Mode Styles */
+body.focus-mode #canvas-header {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-100%);
 }
+
+body.focus-mode #controls-ui>button:not(#focus-button) {
+    display: none;
+}
+
+body.focus-mode #focus-button {
+    background-color: transparent;
+    color: #555;
+    box-shadow: none;
+    transform: scale(0.8);
+    opacity: 0.3;
+    /* Very subtle */
+    border: 1px solid #333;
+}
+
+body.focus-mode #focus-button:hover {
+    opacity: 1;
+    color: var(--accent-color);
+    background-color: rgba(0, 0, 0, 0.5);
+    transform: scale(1);
+    border-color: var(--accent-color);
+}
+
+
 
 .link-handle {
     position: absolute;
@@ -491,4 +474,52 @@ body.focus-mode #focus-button {
 .wysiwyg-btn svg {
     width: 16px;
     height: 16px;
+}
+
+@media (max-width: 768px) {
+    .node {
+        min-width: 120px;
+        min-height: 70px;
+    }
+
+    .node-content {
+        font-size: 16px;
+    }
+
+    #controls-ui {
+        bottom: 15px;
+        right: 15px;
+        gap: 10px;
+    }
+
+    #sync-button,
+    #save-button,
+    #clear-button,
+    #zoom-100-button,
+    #reposition-button,
+    #focus-button {
+        width: 50px;
+        height: 50px;
+    }
+
+    /* Left align header on mobile */
+    #canvas-header {
+        top: 0;
+        left: 0;
+        width: 100%;
+        transform: none;
+        padding: 10px 15px;
+        gap: 10px;
+        border-radius: 0;
+        border: none;
+        border-bottom: 1px solid #333;
+        box-sizing: border-box;
+        justify-content: flex-start;
+    }
+
+    #canvas-title {
+        text-align: left;
+        min-width: auto;
+        font-size: 16px;
+    }
 }
