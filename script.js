@@ -1546,6 +1546,17 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         nodes.push(newNode);
+
+        // Focus on the new node
+        const nodeWidth = 360;
+        const nodeHeight = 80; // Initial height
+        const targetX = newNode.x + nodeWidth / 2;
+        const targetY = newNode.y + nodeHeight / 2;
+
+        pan.x = window.innerWidth / 2 - targetX * scale;
+        pan.y = window.innerHeight / 2 - targetY * scale;
+        updateTransform();
+
         saveState();
         render();
     };
