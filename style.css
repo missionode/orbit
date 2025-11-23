@@ -81,7 +81,7 @@ html {
 
 .node {
     position: absolute;
-    min-width: 150px;
+    width: 360px;
     min-height: 80px;
     background-color: var(--node-background);
     border: 1px solid var(--node-border);

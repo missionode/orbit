@@ -398,7 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentCanvas.nodes.forEach(node => {
             minX = Math.min(minX, node.x);
             minY = Math.min(minY, node.y);
-            maxX = Math.max(maxX, node.x + 150); // Add node width approximation
+            maxX = Math.max(maxX, node.x + 360); // Add node width (360)
             maxY = Math.max(maxY, node.y + 80);  // Add node height approximation
         });
 
@@ -1349,9 +1349,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const findSmartPosition = (parent, allNodes) => {
-        const nodeWidth = 250; // Assumed width + gap
+        const nodeWidth = 400; // Assumed width (360) + gap
         const nodeHeight = 150; // Assumed height + gap
-        const minDistance = 300; // Minimum distance from parent
+        const minDistance = 450; // Minimum distance from parent
 
         // 1. Determine base angle.
         // If parent has a parent, continue that direction to maintain flow.
@@ -2037,7 +2037,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const visited = new Set();
         const levelHeight = 200;
-        const siblingGap = 220;
+        const siblingGap = 400; // Increased for 360px wide nodes
 
         const layoutNode = (nodeId, level, startX) => {
             if (visited.has(nodeId)) return startX;
