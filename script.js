@@ -2065,36 +2065,51 @@ document.addEventListener('DOMContentLoaded', () => {
     syncButton.addEventListener('click', async () => {
         try {
             if (!fileHandle) {
-                // Prompt for sample download
-                if (confirm("Do you want to download a sample db.json file first?")) {
-                    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'db.json';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
+                // User wants to start syncing. 
+                // We use showSaveFilePicker to let them create/select a file to sync TO.
+                // This replaces the "Download Sample" + "Open File" flow.
+                try {
+                    fileHandle = await window.showSaveFilePicker({
+                        suggestedName: 'db.json',
+                        types: [{
+                            description: 'JSON Files',
+                            accept: { 'application/json': ['.json'] },
+                        }],
+                    });
 
-                    // Small delay to ensure download starts before picker opens (though picker is blocking)
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Immediately write current state to this new file to initialize it
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(JSON.stringify(state, null, 2));
+                    await writable.close();
+
+                    alert("File created and connected! Future changes will sync automatically.");
+                } catch (err) {
+                    if (err.name === 'AbortError') {
+                        // User cancelled, do nothing
+                        return;
+                    }
+                    throw err;
                 }
-
-                [fileHandle] = await window.showOpenFilePicker({
-                    types: [{
-                        description: 'JSON Files',
-                        accept: { 'application/json': ['.json'] },
-                    }],
-                });
             }
+
+            // If we have a handle (either just created or existing), proceed to sync check
+            // Note: If we just created it, local is definitely newer (or equal), so it might just say "synced".
+            // But let's run the check anyway to be safe and consistent.
 
             const file = await fileHandle.getFile();
             const fileContent = await file.text();
-            const fileData = JSON.parse(fileContent);
+
+            // If file is empty (rare if we just wrote it, but possible if user picked empty existing file), handle it
+            let fileData;
+            try {
+                fileData = JSON.parse(fileContent);
+            } catch (e) {
+                // If parse fails, assume we should overwrite with local
+                fileData = { lastModified: 0 };
+            }
 
             const localLastModified = new Date(state.lastModified);
-            const fileLastModified = new Date(fileData.lastModified);
+            const fileLastModified = new Date(fileData.lastModified || 0);
 
             if (fileLastModified > localLastModified) {
                 console.log("File is newer. Loading data from file.");
