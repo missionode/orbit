@@ -738,6 +738,31 @@ document.addEventListener('DOMContentLoaded', () => {
         connectionsSvg.appendChild(group);
     };
 
+    const pushNodesBelow = (sourceId, deltaY) => {
+        if (Math.abs(deltaY) < 1) return; // Ignore sub-pixel changes
+        const nodes = getCurrentCanvas().nodes;
+        const sourceNode = nodes.find(n => n.id === sourceId);
+        if (!sourceNode) return;
+
+        // Threshold for "same column" overlap
+        // Node width is 360. If centers are within 360px, they overlap horizontally.
+        const columnThreshold = 360;
+
+        nodes.forEach(n => {
+            if (n.id === sourceId) return;
+
+            // Check if n is below source and in the same column
+            if (n.y > sourceNode.y && Math.abs(n.x - sourceNode.x) < columnThreshold) {
+                n.y += deltaY;
+
+                // Update DOM immediately for smoothness
+                const el = document.querySelector(`.node[data-id="${n.id}"]`);
+                if (el) el.style.top = `${n.y}px`;
+            }
+        });
+        renderConnections();
+    };
+
     const createNodeElement = (nodeData) => {
         const node = document.createElement('div');
         node.classList.add('node');
@@ -757,6 +782,29 @@ document.addEventListener('DOMContentLoaded', () => {
             node.style.boxShadow = '0 0 15px #fff';
             node.style.zIndex = '1000';
         }
+
+        // WYSIWYG Toolbar
+        const toolbar = document.createElement('div');
+        toolbar.classList.add('wysiwyg-toolbar');
+
+        const createToolbarBtn = (svgPath, command) => {
+            const btn = document.createElement('button');
+            btn.classList.add('wysiwyg-btn');
+            btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svgPath}</svg>`;
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // Prevent focus loss
+                document.execCommand(command, false, null);
+            });
+            return btn;
+        };
+
+        toolbar.appendChild(createToolbarBtn('<path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>', 'bold'));
+        toolbar.appendChild(createToolbarBtn('<line x1="19" y1="4" x2="10" y2="4"></line><line x1="14" y1="20" x2="5" y2="20"></line><line x1="15" y1="4" x2="9" y2="20"></line>', 'italic'));
+        toolbar.appendChild(createToolbarBtn('<path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path><line x1="4" y1="21" x2="20" y2="21"></line>', 'underline'));
+        toolbar.appendChild(createToolbarBtn('<line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>', 'insertUnorderedList'));
+        toolbar.appendChild(createToolbarBtn('<line x1="10" y1="6" x2="21" y2="6"></line><line x1="10" y1="12" x2="21" y2="12"></line><line x1="10" y1="18" x2="21" y2="18"></line><path d="M4 6h1v4"></path><path d="M4 10h2"></path><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"></path>', 'insertOrderedList'));
+
+        node.appendChild(toolbar);
 
         const content = document.createElement('div');
         content.classList.add('node-content');
@@ -863,8 +911,19 @@ document.addEventListener('DOMContentLoaded', () => {
         heading.innerText = nodeData.heading || nodeData.content || '';
 
         let initialHeading = heading.innerText;
+        let lastHeight = 0; // Track height for auto-resize
+
+        const checkResize = () => {
+            const currentHeight = node.offsetHeight;
+            if (lastHeight > 0 && currentHeight !== lastHeight) {
+                const delta = currentHeight - lastHeight;
+                pushNodesBelow(nodeData.id, delta);
+            }
+            lastHeight = currentHeight;
+        };
 
         heading.addEventListener('focus', () => {
+            lastHeight = node.offsetHeight;
             initialHeading = heading.innerText;
             // Auto-clear placeholder text
             if (heading.innerText === 'Root Idea' || heading.innerText === 'New Idea') {
@@ -873,6 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         heading.addEventListener('input', () => {
+            checkResize();
             const nodes = getCurrentCanvas().nodes;
             const nodeToUpdate = nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
@@ -898,10 +958,12 @@ document.addEventListener('DOMContentLoaded', () => {
         let initialDescription = description.innerText;
 
         description.addEventListener('focus', () => {
+            lastHeight = node.offsetHeight; // Update lastHeight on focus
             initialDescription = description.innerText;
         });
 
         description.addEventListener('input', () => {
+            checkResize();
             const nodes = getCurrentCanvas().nodes;
             const nodeToUpdate = nodes.find(n => n.id === nodeData.id);
             if (nodeToUpdate) {
@@ -915,6 +977,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 pushHistory(); // Save history snapshot on blur
             }
         });
+
+        // Focus handling for toolbar visibility
+        const onFocus = () => node.classList.add('focused');
+        const onBlur = () => node.classList.remove('focused');
+
+        heading.addEventListener('focus', onFocus);
+        heading.addEventListener('blur', onBlur);
+        description.addEventListener('focus', onFocus);
+        description.addEventListener('blur', onBlur);
 
         // Instructions Container
         const instructionsContainer = document.createElement('div');

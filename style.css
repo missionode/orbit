@@ -428,3 +428,54 @@ body.focus-mode #focus-button {
     /* Red to indicate 'exit' or active state */
     box-shadow: 0 0 15px rgba(255, 85, 85, 0.5);
 }
+
+/* WYSIWYG Toolbar */
+.wysiwyg-toolbar {
+    display: flex;
+    gap: 4px;
+    background: #2a2a2a;
+    padding: 4px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    border: 1px solid #444;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    position: absolute;
+    top: -45px;
+    left: 0;
+    width: 100%;
+    box-sizing: border-box;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.node.focused .wysiwyg-toolbar,
+.wysiwyg-toolbar:hover {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.wysiwyg-btn {
+    background: transparent;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+}
+
+.wysiwyg-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.wysiwyg-btn svg {
+    width: 16px;
+    height: 16px;
+}
