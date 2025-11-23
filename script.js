@@ -150,9 +150,58 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Load viewport from current canvas
+        // Instead of restoring exact state, we Zoom to Fit on load for a "decent glimpse"
         const currentCanvas = getCurrentCanvas();
-        pan = currentCanvas.pan || { x: 0, y: 0 };
-        scale = currentCanvas.scale || 1;
+
+        // Helper to zoom to fit content
+        const zoomToFit = () => {
+            const nodes = currentCanvas.nodes;
+            if (nodes.length === 0) {
+                pan = { x: 0, y: 0 };
+                scale = 1;
+            } else {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                nodes.forEach(n => {
+                    const nx = Number(n.x);
+                    const ny = Number(n.y);
+                    if (isFinite(nx) && isFinite(ny)) {
+                        minX = Math.min(minX, nx);
+                        minY = Math.min(minY, ny);
+                        maxX = Math.max(maxX, nx + 360);
+                        maxY = Math.max(maxY, ny + 150); // Approx height
+                    }
+                });
+
+                if (minX === Infinity) {
+                    pan = { x: 0, y: 0 };
+                    scale = 1;
+                } else {
+                    const contentWidth = maxX - minX;
+                    const contentHeight = maxY - minY;
+                    const contentCenterX = (minX + maxX) / 2;
+                    const contentCenterY = (minY + maxY) / 2;
+
+                    const padding = 100;
+                    const availableWidth = window.innerWidth - padding * 2;
+                    const availableHeight = window.innerHeight - padding * 2;
+
+                    const scaleX = availableWidth / contentWidth;
+                    const scaleY = availableHeight / contentHeight;
+
+                    // Fit to screen, but clamp scale to reasonable limits
+                    // We don't want it too small (0.2) or too zoomed in (>1)
+                    let newScale = Math.min(scaleX, scaleY);
+                    newScale = Math.min(Math.max(newScale, 0.2), 1);
+
+                    scale = newScale;
+                    pan.x = window.innerWidth / 2 - contentCenterX * scale;
+                    pan.y = window.innerHeight / 2 - contentCenterY * scale;
+                }
+            }
+            updateTransform();
+        };
+
+        zoomToFit();
 
         // Update Title UI
         document.getElementById('canvas-title').innerText = currentCanvas.title;
