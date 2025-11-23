@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Interaction State
     let linkingFromId = null;
+    let selectedNodeId = null;
 
     let fileHandle = null;
 
@@ -194,6 +195,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update position
                 nodeEl.style.left = `${nodeData.x}px`;
                 nodeEl.style.top = `${nodeData.y}px`;
+
+                // Update selection state
+                if (nodeData.id === selectedNodeId) {
+                    nodeEl.classList.add('selected');
+                    nodeEl.style.boxShadow = `0 0 0 2px #fff, 0 4px 12px ${nodeData.color || '#000'}40`;
+                } else {
+                    nodeEl.classList.remove('selected');
+                    // Restore original shadow if needed, but CSS handles hover. 
+                    // We just need to ensure we don't override it permanently if not selected.
+                    if (nodeData.color) {
+                        nodeEl.style.boxShadow = `0 4px 12px ${nodeData.color}40`;
+                    } else {
+                        nodeEl.style.boxShadow = '';
+                    }
+                }
 
                 // Update heading if it changed externally
                 const headingEl = nodeEl.querySelector('.node-heading');
@@ -500,10 +516,45 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTransform();
     };
 
+    const deleteCanvas = () => {
+        if (state.canvases.length <= 1) {
+            alert("You cannot delete the last remaining canvas.");
+            return;
+        }
+
+        if (confirm("Are you sure you want to delete this canvas? This action cannot be undone.")) {
+            const currentIndex = state.canvases.findIndex(c => c.id === state.currentCanvasId);
+
+            // Remove current canvas
+            state.canvases.splice(currentIndex, 1);
+
+            // Switch to the previous canvas (or the first one if we deleted the first)
+            const newIndex = Math.max(0, currentIndex - 1);
+            state.currentCanvasId = state.canvases[newIndex].id;
+
+            // Load new viewport
+            const newCanvas = state.canvases[newIndex];
+            pan = newCanvas.pan || { x: 0, y: 0 };
+            scale = newCanvas.scale || 1;
+
+            // Reset history
+            history = [];
+            historyIndex = -1;
+            pushHistory();
+
+            // Update UI
+            document.getElementById('canvas-title').innerText = newCanvas.title;
+            saveState(true);
+            render();
+            updateTransform();
+        }
+    };
+
     // Event Listeners for Canvas UI
     document.getElementById('prev-canvas').addEventListener('click', () => switchCanvas('prev'));
     document.getElementById('next-canvas').addEventListener('click', () => switchCanvas('next'));
     document.getElementById('add-canvas').addEventListener('click', addCanvas);
+    document.getElementById('delete-canvas').addEventListener('dblclick', deleteCanvas);
 
     const titleEl = document.getElementById('canvas-title');
     titleEl.addEventListener('input', () => {
@@ -514,6 +565,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('focus-button').addEventListener('click', () => {
         document.body.classList.toggle('focus-mode');
+    });
+
+    // Deselect node when clicking on the canvas background
+    canvas.addEventListener('click', (e) => {
+        if (e.target === canvas || e.target === world || e.target === nodesContainer || e.target === connectionsSvg || e.target === document.getElementById('groups')) {
+            if (selectedNodeId !== null) {
+                selectedNodeId = null;
+                renderNodes(); // Re-render to remove selection highlight
+            }
+        }
     });
 
     // Update other functions to use getCurrentCanvas().nodes
@@ -710,11 +771,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Click to complete link
+        // Click to complete link or select node
         node.addEventListener('click', (e) => {
+            e.stopPropagation();
             if (linkingFromId && linkingFromId !== nodeData.id) {
-                e.stopPropagation();
                 completeLink(linkingFromId, nodeData.id);
+            } else {
+                // Select node
+                selectedNodeId = nodeData.id;
+                renderNodes(); // Re-render to show selection
             }
         });
 
@@ -1575,6 +1640,12 @@ document.addEventListener('DOMContentLoaded', () => {
             initialPanX = pan.x;
             initialPanY = pan.y;
             canvas.style.cursor = 'grabbing';
+
+            // Deselect node if clicking background
+            if (selectedNodeId) {
+                selectedNodeId = null;
+                renderNodes();
+            }
         }
     });
 
@@ -2040,10 +2111,25 @@ document.addEventListener('DOMContentLoaded', () => {
         render();
     };
 
-    document.getElementById('reposition-button').addEventListener('click', () => {
+    const repositionBtn = document.getElementById('reposition-button');
+
+    repositionBtn.addEventListener('click', () => {
+        const nodes = getCurrentCanvas().nodes;
+        if (nodes.length === 0) {
+            alert("Canvas is empty.");
+            return;
+        }
         if (confirm("Auto-reposition all nodes? This will overwrite your custom layout.")) {
             autoLayout();
         }
+    });
+
+    repositionBtn.addEventListener('dblclick', (e) => {
+        e.stopPropagation(); // Prevent click from firing if possible, though dblclick usually fires after clicks
+        pan = { x: 0, y: 0 };
+        scale = 1;
+        updateTransform();
+        saveState(); // Save the new viewport state
     });
 
     // Initial Load
@@ -2064,6 +2150,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
             e.preventDefault();
             redo();
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            // Only delete if we have a selected node and we are NOT editing text
+            if (selectedNodeId && document.activeElement.tagName !== 'INPUT' && !document.activeElement.isContentEditable) {
+                e.preventDefault();
+                deleteNode(selectedNodeId);
+                selectedNodeId = null; // Clear selection after delete
+            }
         }
     }); // Apply initial pan/scale
 
