@@ -502,6 +502,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    // Helper for one-time tips
+    const showTip = (key, message) => {
+        if (!localStorage.getItem(key)) {
+            // Use a non-blocking toast or just a standard alert for simplicity as requested ("prompt")
+            // A custom toast is better but alert is safer to ensure they see it.
+            // User said "prompt", usually implies alert or modal.
+            alert(`Tip: ${message}`);
+            localStorage.setItem(key, 'true');
+        }
+    };
+
     // Canvas Management Logic
     const switchCanvas = (direction) => {
         const currentIndex = state.canvases.findIndex(c => c.id === state.currentCanvasId);
@@ -604,6 +615,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('next-canvas').addEventListener('click', () => switchCanvas('next'));
     document.getElementById('add-canvas').addEventListener('click', addCanvas);
     document.getElementById('delete-canvas').addEventListener('dblclick', deleteCanvas);
+    document.getElementById('delete-canvas').addEventListener('click', () => {
+        showTip('tip_dblclick_delete_canvas', 'Double-click to delete the current canvas.');
+    });
 
     const titleEl = document.getElementById('canvas-title');
     titleEl.addEventListener('input', () => {
@@ -1037,6 +1051,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (confirm("Do you really want to clean up the resolved task? This will remove it and reconnect its neighbors.")) {
                     cleanupNode(nodeData.id);
                 }
+            } else {
+                showTip('tip_dblclick_resolve', 'Double-click to mark this task as resolved.');
             }
         });
 
@@ -1045,6 +1061,7 @@ document.addEventListener('DOMContentLoaded', () => {
             nodeData.resolved = !nodeData.resolved;
             if (nodeData.resolved) {
                 resolveBtn.classList.add('resolved');
+                showTip('tip_cleanup_resolve', 'Task resolved! Click again to clean up and reorganize.');
             } else {
                 resolveBtn.classList.remove('resolved');
             }
