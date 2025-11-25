@@ -444,12 +444,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // Calculate bounding box of all nodes to size the SVG correctly
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-        currentCanvas.nodes.forEach(node => {
-            minX = Math.min(minX, node.x);
-            minY = Math.min(minY, node.y);
-            maxX = Math.max(maxX, node.x + 360); // Add node width (360)
-            maxY = Math.max(maxY, node.y + 80);  // Add node height approximation
-        });
+        if (currentCanvas.nodes.length === 0) {
+            minX = 0;
+            minY = 0;
+            maxX = window.innerWidth;
+            maxY = window.innerHeight;
+        } else {
+            currentCanvas.nodes.forEach(node => {
+                minX = Math.min(minX, node.x);
+                minY = Math.min(minY, node.y);
+                maxX = Math.max(maxX, node.x + 360); // Add node width (360)
+                maxY = Math.max(maxY, node.y + 80);  // Add node height approximation
+            });
+        }
 
         // Add padding for bezier curves and group bubbles
         const padding = 1000;
@@ -1375,11 +1382,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Check for cycles? (Optional, but good for mind maps)
         // For now, allow general graph connections.
-
         child.parentIds.push(parentId);
 
         // Reposition the child to be equidistant from all parents
         repositionSharedNode(child);
+
+        // Propagate spacing adjustments up the ancestry chain
+        let current = nodes.find(n => n.id === parentId);
+        let safetyCounter = 0;
+        while (current && safetyCounter < 20) {
+            resolveOverlaps(current.id);
+            if (current.parentIds && current.parentIds.length > 0) {
+                current = nodes.find(n => n.id === current.parentIds[0]);
+            } else {
+                current = null;
+            }
+            safetyCounter++;
+        }
 
         linkingFromId = null;
 
@@ -1419,9 +1438,51 @@ document.addEventListener('DOMContentLoaded', () => {
         const movedNode = nodes.find(n => n.id === movedNodeId);
         if (!movedNode) return;
 
-        const minDistance = 220; // Minimum spacing between nodes (node width + gap)
+        // Calculate tree width (number of leaf nodes in subtree)
+        const getTreeWidth = (nId, visited = new Set()) => {
+            if (visited.has(nId)) return 0;
+            visited.add(nId);
+            const children = nodes.filter(c => c.parentIds && c.parentIds.includes(nId));
+            if (children.length === 0) return 1;
+            let width = 0;
+            children.forEach(c => width += getTreeWidth(c.id, visited));
+            return width;
+        };
+
+        // Identify all descendants to ignore them in collision checks
+        const getDescendants = (rootId) => {
+            const descendants = new Set();
+            const stack = [rootId];
+            while (stack.length > 0) {
+                const currentId = stack.pop();
+                nodes.forEach(n => {
+                    if (n.parentIds && n.parentIds.includes(currentId)) {
+                        if (!descendants.has(n.id)) {
+                            descendants.add(n.id);
+                            stack.push(n.id);
+                        }
+                    }
+                });
+            }
+            return descendants;
+        };
+        const descendants = getDescendants(movedNodeId);
+
+        // Pre-calculate radii
+        const nodeRadii = new Map();
+        nodes.forEach(n => {
+            const width = getTreeWidth(n.id);
+            // Use square root scaling for radius to avoid excessive empty space for large trees.
+            // Area is proportional to N, so Radius is proportional to sqrt(N).
+            // Base radius 180. Multiplier 120 ensures enough space for packing.
+            let r = 180 + (Math.sqrt(width) - 1) * 120;
+            nodeRadii.set(n.id, r);
+        });
+
+        const movedRadius = nodeRadii.get(movedNodeId);
+
         let iterations = 0;
-        const maxIterations = 5; // Prevent infinite loops/jitter
+        const maxIterations = 5;
 
         // Simple iterative relaxation
         while (iterations < maxIterations) {
@@ -1429,14 +1490,22 @@ document.addEventListener('DOMContentLoaded', () => {
             nodes.forEach(other => {
                 if (other.id === movedNodeId) return;
 
+                // Skip if 'other' is a descendant
+                if (descendants.has(other.id)) return;
+
+                // We DO NOT skip parents anymore.
+                // If a node grows (e.g. becomes a group), it SHOULD push away from its parent.
+
                 // Check distance
                 const dx = movedNode.x - other.x;
                 const dy = movedNode.y - other.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
 
+                const otherRadius = nodeRadii.get(other.id);
+                const minDistance = movedRadius + otherRadius + 100; // Increased buffer for more spacing
+
                 if (dist < minDistance) {
                     // Collision detected
-                    // Push movedNode away from 'other'
                     let pushX = dx;
                     let pushY = dy;
 
@@ -1445,12 +1514,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         pushY = 1;
                     }
 
-                    // Normalize
                     const len = Math.sqrt(pushX * pushX + pushY * pushY);
                     const nx = pushX / len;
                     const ny = pushY / len;
 
-                    // Move by overlap amount + buffer
                     const overlap = minDistance - dist;
                     const moveX = nx * (overlap + 20);
                     const moveY = ny * (overlap + 20);
@@ -1622,6 +1689,19 @@ document.addEventListener('DOMContentLoaded', () => {
         pan.x = window.innerWidth / 2 - targetX * scale;
         pan.y = window.innerHeight / 2 - targetY * scale;
         updateTransform();
+
+        // Propagate spacing adjustments up the ancestry chain
+        let current = parentNode;
+        let safetyCounter = 0;
+        while (current && safetyCounter < 20) { // Safety break
+            resolveOverlaps(current.id);
+            if (current.parentIds && current.parentIds.length > 0) {
+                current = nodes.find(n => n.id === current.parentIds[0]);
+            } else {
+                current = null;
+            }
+            safetyCounter++;
+        }
 
         saveState();
         render();
@@ -2091,9 +2171,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     canvas.addEventListener('wheel', (e) => {
-        if (e.ctrlKey) {
-            e.preventDefault();
+        e.preventDefault();
+
+        if (e.ctrlKey || e.metaKey) {
+            // Zoom
             zoom(e.deltaY, { x: e.clientX, y: e.clientY });
+        } else {
+            // Pan (Trackpad / Magic Mouse / Scroll Wheel)
+            pan.x -= e.deltaX;
+            pan.y -= e.deltaY;
+            updateTransform();
         }
     }, { passive: false });
 
