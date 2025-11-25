@@ -1474,8 +1474,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const width = getTreeWidth(n.id);
             // Use square root scaling for radius to avoid excessive empty space for large trees.
             // Area is proportional to N, so Radius is proportional to sqrt(N).
-            // Base radius 180. Multiplier 120 ensures enough space for packing.
-            let r = 180 + (Math.sqrt(width) - 1) * 120;
+            // Base radius 200. Multiplier 160 ensures enough space for packing.
+            let r = 200 + (Math.sqrt(width) - 1) * 160;
             nodeRadii.set(n.id, r);
         });
 
@@ -1502,7 +1502,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dist = Math.sqrt(dx * dx + dy * dy);
 
                 const otherRadius = nodeRadii.get(other.id);
-                const minDistance = movedRadius + otherRadius + 100; // Increased buffer for more spacing
+                const minDistance = movedRadius + otherRadius + 250; // Increased buffer for more spacing
 
                 if (dist < minDistance) {
                     // Collision detected
@@ -1519,11 +1519,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     const ny = pushY / len;
 
                     const overlap = minDistance - dist;
+
+                    // Distribute movement based on relative sizes to encourage circular expansion
+                    // If movedNode is larger (e.g. a group), it should push smaller neighbors away more than it moves itself.
+                    const totalRadius = movedRadius + otherRadius;
+                    const movedFactor = otherRadius / totalRadius; // Inverse proportion
+                    const otherFactor = movedRadius / totalRadius;
+
                     const moveX = nx * (overlap + 20);
                     const moveY = ny * (overlap + 20);
 
-                    moveSubtree(movedNodeId, moveX, moveY);
-                    moved = true;
+                    // Move movedNode (away from other)
+                    if (movedFactor > 0.05) {
+                        moveSubtree(movedNodeId, moveX * movedFactor, moveY * movedFactor);
+                        moved = true;
+                    }
+
+                    // Move otherNode (away from movedNode)
+                    if (otherFactor > 0.05) {
+                        moveSubtree(other.id, -moveX * otherFactor, -moveY * otherFactor);
+                    }
                 }
             });
 
@@ -1708,9 +1723,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const findSmartPosition = (parent, allNodes) => {
-        const nodeWidth = 500; // Assumed width (360) + generous gap
-        const nodeHeight = 150; // Assumed height + gap
-        const minDistance = 550; // Minimum distance from parent
+        const nodeWidth = 600; // Assumed width (360) + generous gap
+        const nodeHeight = 200; // Assumed height + gap
+        const minDistance = 650; // Minimum distance from parent
 
         // 1. Determine base angle.
         // If parent has a parent, continue that direction to maintain flow.
@@ -2470,8 +2485,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const layoutRoots = roots.length > 0 ? roots : [nodes[0]];
 
         const visited = new Set();
-        const levelHeight = 200;
-        const siblingGap = 500; // Increased for generous spacing (360px node + 140px gap)
+        const levelHeight = 300;
+        const siblingGap = 650; // Increased for generous spacing (360px node + 290px gap)
 
         const layoutNode = (nodeId, level, startX) => {
             if (visited.has(nodeId)) return startX;
