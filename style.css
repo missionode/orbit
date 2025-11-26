@@ -47,7 +47,7 @@ html {
     overflow: visible;
     /* Allow content to be seen outside the 0x0 box */
     transform-origin: 0 0;
-    will-change: transform;
+    /* will-change: transform; Removed to prevent pixelation/artifacts on large canvas layers */
 }
 
 #groups,

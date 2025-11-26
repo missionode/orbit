@@ -410,17 +410,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // We need DOM elements for precise sizes, but we can estimate or use state.
         // Let's use state x/y + fixed size approximation.
 
-        const parentCx = parent.x + 75; // Half width
-        const parentCy = parent.y + 40; // Half height
+        const parentCx = parent.x + 180; // Half width (360/2)
+        const parentCy = parent.y + 40; // Half height (80/2)
 
         let maxDist = 0;
 
         children.forEach(child => {
-            const childCx = child.x + 75;
+            const childCx = child.x + 180;
             const childCy = child.y + 40;
             const dist = Math.sqrt(Math.pow(childCx - parentCx, 2) + Math.pow(childCy - parentCy, 2));
-            // Add node radius approx (half diagonal of 150x80 is ~85)
-            maxDist = Math.max(maxDist, dist + 100);
+            // Add node radius approx (half diagonal of 360x80 is ~184)
+            maxDist = Math.max(maxDist, dist + 200);
         });
 
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -1428,7 +1428,7 @@ document.addEventListener('DOMContentLoaded', () => {
             node.y += dy;
 
             // Find children (nodes that have this node as a parent)
-            const children = nodes.filter(n => n.parentIds && n.parentIds.includes(nodeId));
+            const children = nodes.filter(c => c.parentIds && c.parentIds.includes(nodeId));
             children.forEach(child => moveSubtree(child.id, dx, dy, visited));
         }
     };
@@ -1474,8 +1474,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const width = getTreeWidth(n.id);
             // Use square root scaling for radius to avoid excessive empty space for large trees.
             // Area is proportional to N, so Radius is proportional to sqrt(N).
-            // Base radius 200. Multiplier 160 ensures enough space for packing.
-            let r = 200 + (Math.sqrt(width) - 1) * 160;
+            // Base radius 250. Multiplier 220 ensures enough space for packing.
+            let r = 250 + (Math.sqrt(width) - 1) * 220;
             nodeRadii.set(n.id, r);
         });
 
@@ -1502,7 +1502,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dist = Math.sqrt(dx * dx + dy * dy);
 
                 const otherRadius = nodeRadii.get(other.id);
-                const minDistance = movedRadius + otherRadius + 250; // Increased buffer for more spacing
+                const minDistance = movedRadius + otherRadius + 500; // Increased buffer for more spacing
 
                 if (dist < minDistance) {
                     // Collision detected
